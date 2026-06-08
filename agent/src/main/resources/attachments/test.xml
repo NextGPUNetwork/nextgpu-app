@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<cars>
+    <car id="1">
+        <make>Toyota</make>
+        <model>Camry</model>
+        <year>2022</year>
+        <color>Silver</color>
+        <price>27500</price>
+        <mileage>8500</mileage>
+        <fuelType>Gasoline</fuelType>
+        <transmission>Automatic</transmission>
+        <features>
+            <feature>Bluetooth</feature>
+            <feature>Backup Camera</feature>
+            <feature>Lane Departure Warning</feature>
+        </features>
+    </car>
+    <car id="2">
+        <make>Honda</make>
+        <model>Civic</model>
+        <year>2021</year>
+        <color>Red</color>
+        <price>23000</price>
+        <mileage>12400</mileage>
+        <fuelType>Gasoline</fuelType>
+        <transmission>CVT</transmission>
+        <features>
+            <feature>Apple CarPlay</feature>
+            <feature>Sunroof</feature>
+            <feature>Honda Sensing</feature>
+        </features>
+    </car>
+    <car id="3">
+        <make>Ford</make>
+        <model>Mustang</model>
+        <year>2023</year>
+        <color>Blue</color>
+        <price>38500</price>
+        <mileage>3200</mileage>
+        <fuelType>Gasoline</fuelType>
+        <transmission>Manual</transmission>
+        <features>
+            <feature>Leather Seats</feature>
+            <feature>Heated Steering Wheel</feature>
+            <feature>Track Mode</feature>
+        </features>
+    </car>
+    <car id="4">
+        <make>Tesla</make>
+        <model>Model 3</model>
+        <year>2024</year>
+        <color>White</color>
+        <price>48990</price>
+        <mileage>500</mileage>
+        <fuelType>Electric</fuelType>
+        <transmission>Automatic</transmission>
+        <features>
+            <feature>Autopilot</feature>
+            <feature>Glass Roof</feature>
+            <feature>15" Touchscreen</feature>
+        </features>
+    </car>
+</cars>

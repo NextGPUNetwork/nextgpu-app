@@ -1,0 +1,107 @@
+wsl --install -d Ubuntu-24.04 --no-launch
+wsl --export Ubuntu-24.04 ubuntu-temp.tar
+wsl --unregister Ubuntu-24.04
+wsl --import nextgpu %LOCALAPPDATA%\wsl\nextgpu ubuntu-temp.tar
+# Or If the above command fails,
+wsl --import nextgpu "$env:LOCALAPPDATA\wsl\nextgpu" ubuntu-temp.tar
+del ubuntu-temp.tar
+
+wsl -d nextgpu -- sudo sh -c "printf '[boot]\nsystemd=true\n' > /etc/wsl.conf"
+[boot]
+systemd=true
+[user]
+default=nextgpu
+EOF"
+
+wsl --terminate nextgpu
+
+# Setup user and basic permissions
+wsl -d nextgpu -- bash -c "sudo useradd -m -s /bin/bash nextgpu || true"
+wsl -d nextgpu -- bash -c "sudo bash -c 'echo nextgpu:MyVeryS3curedP@$$ | chpasswd'"
+wsl -d nextgpu -- bash -c "sudo usermod -aG sudo nextgpu"
+wsl -d nextgpu -- bash -c "echo 'nextgpu ALL=(ALL) NOPASSWD:ALL' | sudo tee /etc/sudoers.d/nextgpu > /dev/null"
+
+# This part of script is intended to be run inside the 'nextgpu' WSL instance
+# It handles the installation of CUDA, Ollama, and ComfyUI
+
+# Install CUDA toolkit
+sudo apt update && sudo apt install -y build-essential gnupg ca-certificates wget
+wget -q https://developer.download.nvidia.com/compute/cuda/repos/wsl-ubuntu/x86_64/cuda-wsl-ubuntu.pin
+sudo mv cuda-wsl-ubuntu.pin /etc/apt/preferences.d/cuda-repository-pin-600
+wget -q https://developer.download.nvidia.com/compute/cuda/12.6.3/local_installers/cuda-repo-wsl-ubuntu-12-6-local_12.6.3-1_amd64.deb
+sudo dpkg -i cuda-repo-wsl-ubuntu-12-6-local_12.6.3-1_amd64.deb
+sudo cp /var/cuda-repo-wsl-ubuntu-12-6-local/cuda-*-keyring.gpg /usr/share/keyrings/
+sudo apt-get update
+sudo apt-get -y install cuda-toolkit-12-6
+sudo ln -s /usr/lib/wsl/lib/nvidia-smi /usr/local/bin/nvidia-smi
+nvidia-smi
+
+# Install base packages for native AI services
+sudo apt update && sudo apt install -y curl git python3 python3-pip python3-venv zstd
+
+# Install and expose Ollama service
+if ! command -v ollama >/dev/null 2>&1; then
+    curl -fsSL https://ollama.com/install.sh | sh
+fi
+
+sudo mkdir -p /etc/systemd/system/ollama.service.d
+OLLAMA_PORT=11434
+sudo sh -c "printf \"[Service]\nEnvironment=\\\"OLLAMA_HOST=0.0.0.0:$OLLAMA_PORT\\\"\nEnvironment=\\\"OLLAMA_KEEP_ALIVE=-1\\\"\nEnvironment=\\\"OLLAMA_MAX_LOADED_MODELS=1\\\"\nEnvironment=\\\"PATH=/usr/local/cuda/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin\\\"\nEnvironment=\\\"LD_LIBRARY_PATH=/usr/local/cuda/lib64\\\"\n\" > /etc/systemd/system/ollama.service.d/override.conf"
+
+sudo systemctl daemon-reload && sudo systemctl enable ollama && sudo systemctl restart ollama
+ollama pull deepseek-r1:1.5b
+
+# Install ComfyUI into /opt/nextgpu/comfy/ComfyUI
+sudo mkdir -p /opt/nextgpu/comfy /opt/nextgpu/comfy/basedir /opt/nextgpu/comfy/basedir/custom_nodes /opt/nextgpu/comfy/basedir/models /opt/nextgpu/comfy/basedir/output
+sudo chown -R nextgpu:nextgpu /opt/nextgpu/comfy
+
+if [ ! -d /opt/nextgpu/comfy/ComfyUI/.git ]; then
+    git clone https://github.com/comfyanonymous/ComfyUI.git /opt/nextgpu/comfy/ComfyUI
+fi
+
+cd /opt/nextgpu/comfy/ComfyUI
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip setuptools wheel
+python -m pip install -r requirements.txt
+
+# Create ComfyUI native service
+cat << 'EOF' | sudo tee /etc/systemd/system/comfyui.service > /dev/null
+[Unit]
+Description=ComfyUI service (native WSL setup)
+After=network.target
+
+[Service]
+Type=simple
+User=nextgpu
+Group=nextgpu
+WorkingDirectory=/opt/nextgpu/comfy/ComfyUI
+Environment=PYTHONUNBUFFERED=1
+Environment=PATH=/usr/local/cuda/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+Environment=LD_LIBRARY_PATH=/usr/local/cuda/lib64
+COMFY_PORT=8188
+ExecStart=/opt/nextgpu/comfy/ComfyUI/.venv/bin/python /opt/nextgpu/comfy/ComfyUI/main.py --listen 0.0.0.0 --port $COMFY_PORT --base-directory /opt/nextgpu/comfy/basedir
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+sudo systemctl daemon-reload && sudo systemctl enable comfyui && sudo systemctl restart comfyui
+
+# Verify services
+systemctl is-active --quiet ollama && echo "ollama-active"
+systemctl is-active --quiet comfyui && echo "comfyui-active"
+curl -fsS http://127.0.0.1:$OLLAMA_PORT/api/tags >/dev/null && echo "ollama-api-ready"
+
+# Final Steps
+# Run the following commnad in nextgpu WSL instance
+hostname -I
+# Copy the IP address and paste it in the following commands in Commant Prompt (Run as Administrator)
+
+netsh interface portproxy delete v4tov4 listenaddress=127.0.0.1 listenport=8188
+netsh interface portproxy add v4tov4 listenaddress=127.0.0.1 listenport=8188 connectaddress=<IP> connectport=8188
+
+netsh interface portproxy delete v4tov4 listenaddress=127.0.0.1 listenport=11434
+netsh interface portproxy add v4tov4 listenaddress=127.0.0.1 listenport=11434 connectaddress=<IP> connectport=11434

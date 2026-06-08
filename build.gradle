@@ -1,0 +1,95 @@
+
+plugins {
+    id 'org.springframework.boot' version '3.4.2' apply false
+    id 'io.spring.dependency-management' version '1.1.2' apply false
+    id 'java'
+    id "org.sonarqube" version "5.1.0.4882"
+    id "jacoco"
+}
+
+group = 'ai.nextgpu'
+version = '0.1.1'
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
+}
+
+repositories {
+    mavenCentral()
+    maven {
+        url "https://www.bouncycastle.org/repo/maven/"
+    }
+}
+
+allprojects {
+    apply plugin: 'maven-publish'
+}
+
+subprojects {
+    // Set group and version for all subprojects
+    group = rootProject.group
+    version = rootProject.version
+
+    apply plugin: 'java'  // Obviously
+    apply plugin: 'java-library'  // Required for `api` scope to work
+    apply plugin: 'org.springframework.boot'
+    apply plugin: 'io.spring.dependency-management'
+
+    apply plugin: 'org.sonarqube' // Required for sonarqube
+
+    apply plugin: 'jacoco'
+
+    sonar {
+        properties {
+            property "sonar.sources", "src/main"
+            property "sonar.tests", "src/test"
+            property "sonar.coverage.jacoco.xmlReportPaths", "build/reports/jacoco/test/jacocoTestReport.xml"
+        }
+    }
+    
+    tasks.named('test') {
+        finalizedBy jacocoTestReport // Run report after tests
+        environment System.getenv()
+    }
+
+    tasks.named('jacocoTestReport') {
+        dependsOn test // Tests must run first
+        reports {
+            xml.required = true // SonarQube reads the XML file
+            html.required = true // Optional: for you to view in browser
+        }
+    }
+
+    repositories {
+        mavenCentral()
+    }
+
+    publishing {
+        publications {
+            mavenJava(MavenPublication) {
+                from components.java
+            }
+        }
+        repositories {
+            mavenLocal()
+        }
+    }
+
+    tasks.named('test') {
+        useJUnitPlatform()
+    }
+}
+
+project(":agent") {
+    sonar {
+        skipProject = true
+    }
+}
+
+project(":common") {
+    sonar {
+        skipProject = true
+    }
+}

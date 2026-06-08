@@ -1,0 +1,60 @@
+spring:
+  application:
+    name: NextGPU Agent
+    version: 0.1.1
+  main:
+    lazy-initialization: true
+  datasource:
+    url: jdbc:h2:file:./data/nextgpu;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
+    driver-class-name: org.h2.Driver
+    username: sa
+    password: password
+  h2:
+    console:
+      enabled: true
+      path: /h2-console
+  jpa:
+    database-platform: org.hibernate.dialect.H2Dialect
+    hibernate:
+      ddl-auto: update
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
+    locations: classpath:db_migration/h2
+    clean-disabled: false
+  data:
+    redis:
+      host: localhost
+      port: 6379
+      timeout: 60000
+
+logging:
+  level:
+    root: INFO
+    ai.nextgpu: DEBUG  # Enable debug logs for NextGPU
+    org.springframework: WARN    # Reduce Spring logs
+  file:
+    name: logs/nextgpuagent.log
+
+nextgpu:
+  agent:
+    threadPoolSize: 5
+    analytics:
+      http-request-period-ms: 60000
+  web:
+    versionBaseUrl: https://nextgpu.ai
+    baseUrl: https://api-staging.nextgpu.ai # http://localhost:8080 #
+    socketUrl: wss://api-staging.nextgpu.ai/ws # ws://localhost:8080/ws #
+
+ollama:
+  host: ${OLLAMA_HOST:localhost}
+  port: ${OLLAMA_PORT:11434}
+  api:
+    url: http://${ollama.host}:${ollama.port}
+
+comfy:
+  host: ${COMFY_HOST:localhost}
+  port: ${COMFY_PORT:8188}
+  api:
+    url: http://${comfy.host}:${comfy.port}
+  basedir: /opt/nextgpu/comfy/basedir

@@ -1,0 +1,70 @@
+{
+  "models": {
+    "sd_default": {
+      "sampler": "euler",
+      "scheduler": "normal",
+      "files": [
+        {
+          "repo_id": "stable-diffusion-v1-5/stable-diffusion-v1-5",
+          "filename": "v1-5-pruned-emaonly.safetensors",
+          "target_subfolder": "checkpoints",
+          "url": "https://huggingface.co/stable-diffusion-v1-5/stable-diffusion-v1-5/blob/main/v1-5-pruned-emaonly.safetensors"
+        }
+      ]
+    },
+    "sdxl_base": {
+      "sampler": "dpmpp_2m",
+      "scheduler": "karras",
+      "files": [
+        {
+          "repo_id": "stabilityai/stable-diffusion-xl-base-1.0",
+          "filename": "sd_xl_base_1.0.safetensors",
+          "target_subfolder": "checkpoints",
+          "url": "https://huggingface.co/stabilityai/stable-diffusion-xl-base-1.0/blob/main/sd_xl_base_1.0.safetensors"
+        },
+        {
+          "repo_id": "stabilityai/sdxl-vae",
+          "filename": "sdxl_vae.safetensors",
+          "target_subfolder": "vae",
+          "url": "https://huggingface.co/stabilityai/sdxl-vae/blob/main/sdxl_vae.safetensors"
+        },
+        {
+          "repo_id": "stabilityai/stable-diffusion-xl-refiner-1.0",
+          "filename": "sd_xl_refiner_1.0.safetensors",
+          "target_subfolder": "checkpoints",
+          "url": "https://huggingface.co/stabilityai/stable-diffusion-xl-refiner-1.0/resolve/main/sd_xl_refiner_1.0.safetensors?download=true"
+        }
+      ]
+    },
+    "sdxl_turbo": {
+      "sampler": "euler_ancestral",
+      "scheduler": "normal",
+      "files": [
+        {
+          "repo_id": "stabilityai/sdxl-turbo",
+          "filename": "sd_xl_turbo_1.0_fp16.safetensors",
+          "target_subfolder": "diffusion_models",
+          "url": "https://huggingface.co/stabilityai/sdxl-turbo/resolve/main/sd_xl_turbo_1.0_fp16.safetensors"
+        }
+      ]
+    }
+  },
+  "audio_models": {
+    "stable_audio": {
+    "files": [
+      {
+        "repo_id": "Comfy-Org/stable-audio-open-1.0_repackaged",
+        "filename": "stable-audio-open-1.0.safetensors",
+        "target_subfolder": "checkpoints",
+        "url": "https://huggingface.co/Comfy-Org/stable-audio-open-1.0_repackaged/resolve/main/stable-audio-open-1.0.safetensors"
+      },
+      {
+        "repo_id": "ComfyUI-Wiki/t5-base",
+        "filename": "t5-base.safetensors",
+        "target_subfolder": "text_encoders",
+        "url": "https://huggingface.co/ComfyUI-Wiki/t5-base/resolve/main/t5-base.safetensors"
+      }
+    ]
+    }
+  }
+}

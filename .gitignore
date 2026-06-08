@@ -1,0 +1,73 @@
+HELP.md
+.gradle
+build/
+!gradle/wrapper/gradle-wrapper.jar
+!**/src/main/**/build/
+!**/src/test/**/build/
+
+### STS ###
+.apt_generated
+.classpath
+.factorypath
+.project
+.settings
+.springBeans
+.sts4-cache
+bin/
+!**/src/main/**/bin/
+!**/src/test/**/bin/
+
+### IntelliJ IDEA ###
+.idea
+*.iws
+*.iml
+*.ipr
+out/
+!**/src/main/**/out/
+!**/src/test/**/out/
+
+### NetBeans ###
+/nbproject/private/
+/nbbuild/
+/dist/
+/nbdist/
+/.nb-gradle/
+
+### VS Code ###
+.vscode/
+
+### OS ###
+.DS_Store
+
+### Logs ###
+Logs/
+*.log
+
+### NodeJS ###
+node_modules/
+nextgpudapp/node_modules/
+
+### Temporary files ###
+*.temp
+*.tmp
+
+### Report files ###
+reports/*
+
+### In-file Databases ###
+data/*.db
+.env
+
+### Python ###
+venv/
+agent/comfy/basedir
+agent/comfy/run
+__pycache__/
+
+.output.txt
+agent/data/nextgpu.mv.db
+agent/data/nextgpu.trace.db
+app_*.text
+test_output.txt
+test_output_v2.txt
+

@@ -1,0 +1,228 @@
+import org.jetbrains.compose.desktop.application.dsl.TargetFormat
+import org.jetbrains.compose.desktop.application.tasks.AbstractJPackageTask
+
+plugins {
+    id 'org.jetbrains.kotlin.jvm' version '1.9.23'
+    id 'org.jetbrains.compose' version '1.7.0'
+    id 'org.jetbrains.kotlin.plugin.spring' version '1.9.23'
+}
+
+repositories {
+    google()
+    mavenCentral()
+}
+
+dependencies {
+    implementation project(":common")
+    implementation(compose.desktop.currentOs)
+
+//    TODO: Once the UI correctly populates, remove these
+//    implementation("org.jetbrains.compose.ui:ui:1.5.10")
+//    implementation("org.jetbrains.compose.material:material:1.5.10")
+//    implementation("org.jetbrains.compose.runtime:runtime:1.5.10")
+
+    // Material Icons
+    // Use JetBrains Compose material icons to avoid mixing AndroidX Compose artifacts
+    implementation(compose.materialIconsExtended)
+
+    // Align versions with your coroutines version
+    implementation "org.jetbrains.kotlinx:kotlinx-coroutines-core:1.7.3"
+    implementation "org.jetbrains.kotlinx:kotlinx-coroutines-swing:1.7.3"
+    implementation "org.jetbrains.kotlin:kotlin-reflect"
+
+    // JFree Charts
+    implementation 'org.jfree:jfreechart:1.5.4'
+
+    // JWT Token
+    implementation 'io.jsonwebtoken:jjwt-api:0.12.6'
+    runtimeOnly 'io.jsonwebtoken:jjwt-impl:0.12.6'
+    runtimeOnly 'io.jsonwebtoken:jjwt-jackson:0.12.6'
+
+    // Spring
+    implementation 'org.springframework.boot:spring-boot-starter-web'
+    implementation 'org.springframework.boot:spring-boot-starter-data-redis'
+    implementation 'com.github.codemonstur:embedded-redis:1.4.3'
+
+    // Open System and Hardware Information
+    implementation group: 'com.github.oshi', name: 'oshi-core-java11', version: '6.6.6'
+
+    // Lombok
+    compileOnly 'org.projectlombok:lombok'
+    annotationProcessor 'org.projectlombok:lombok'
+
+    // Spring Test
+    testImplementation 'org.springframework.boot:spring-boot-starter-test'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+
+    // JUnit 5 Test Suite
+    testImplementation 'org.junit.jupiter:junit-jupiter-api'
+    testImplementation 'org.junit.platform:junit-platform-suite'
+    testRuntimeOnly 'org.junit.jupiter:junit-jupiter-engine'
+
+    // Coroutines test utilities
+    testImplementation "org.jetbrains.kotlinx:kotlinx-coroutines-test:1.7.3"
+
+    // WireMock (for HTTP-level integration tests)
+    testImplementation 'org.wiremock:wiremock-standalone:3.11.0'
+
+    // --- MARKDOWN RENDERER (Mike Penz) ---
+    // Core renderer with Material 2 support (version 0.33.0)
+    implementation 'com.mikepenz:multiplatform-markdown-renderer-m2:0.33.0'
+
+    // (Optional) Syntax Highlighting for code blocks
+    implementation 'com.mikepenz:multiplatform-markdown-renderer-code:0.33.0'
+
+    implementation 'org.commonmark:commonmark:0.22.0'
+    // The gold standard for Java LaTeX rendering
+    implementation 'org.scilab.forge:jlatexmath:1.0.7'
+
+    // Bouncy castle libraries for Quantum safe encryption
+    implementation 'org.bouncycastle:bcprov-jdk18on:1.78.1'
+    implementation 'org.bouncycastle:bcprov-ext-jdk18on:1.78.1'
+
+    implementation 'org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.0'
+
+    // Apache tika lib for file support
+    implementation"org.apache.tika:tika-core:2.9.0"
+    implementation"org.apache.tika:tika-parsers-standard-package:2.9.0"
+
+    // RapidOCR lib for image OCR
+    implementation 'io.github.mymonstercat:rapidocr:0.0.7'
+    implementation 'io.github.mymonstercat:rapidocr-onnx-platform:0.0.7'
+
+}
+
+
+//bootJar { enabled = false }   // Disable bootJar to prevent conflict with Compose packaging
+plugins.withId("org.springframework.boot") {
+    bootJar {
+        enabled = true
+        requiresUnpack("**/resources/**")
+    }
+}
+jar { enabled = true }
+compose.desktop {
+    application {
+        mainClass = "ai.nextgpu.agent.NextGpuAgentApplicationKt"
+        nativeDistributions {
+            targetFormats(TargetFormat.Msi)
+            packageName = "NextGPU"
+            packageVersion = project.version.toString()
+            vendor = "nextgpu.ai"
+            description = "NextGPU Agent App"
+            modules("java.desktop", "java.sql", "java.naming", "java.management", "java.instrument", "jdk.unsupported", "java.net.http", "jdk.crypto.ec")
+            // Optional Windows-specific tweaks:
+            windows {
+                menu = true    // Create a sub-menu
+                shortcut = true    // Create Dekstop and menu shortcuts
+                dirChooser = true  // Allow choosing custom installation directory
+                perUserInstall = true  // Allow installing on User's account
+//                console = true  // Print console output
+                iconFile.set(project.file("src/main/resources/icons/nextgpu.ico"))
+            }
+        }
+    }
+}
+
+kotlin {
+    compilerOptions {
+        freeCompilerArgs.addAll '-Xjsr305=strict'
+    }
+}
+
+tasks.register("prepareForPackaging", Copy) {
+    into("$buildDir/jpackage")
+    from(tasks.named("bootJar").map { it.outputs.files })
+    from("scripts") {
+        into("scripts")
+        includeEmptyDirs = true
+    }
+
+    from("src/main/resources") {
+        into("resources")
+        includeEmptyDirs = true
+    }
+}
+
+tasks.register("packageInnoSetup") {
+    dependsOn 'createDistributable'
+
+    doLast {
+        def issFile = project.file("src/main/resources/windows/installer.iss")
+        def stagingDir = project.file("build/innosetup-staging")
+        def appDir = project.file("$stagingDir/app")
+        def scriptsDir = project.file("$stagingDir/scripts")
+
+        // Clean and create staging directories
+        stagingDir.deleteDir()
+        stagingDir.mkdirs()
+        appDir.mkdirs()
+        scriptsDir.mkdirs()
+
+        // Find the application executable in compose binaries (Updated casing)
+        def exeFile = project.fileTree("build/compose/binaries/main/app/NextGPU") {
+            include "NextGPU.exe"
+        }.files.find { it.isFile() }
+
+        if (!exeFile) {
+            throw new GradleException("NextGPU.exe not found in compose distributable output")
+        }
+
+        // Copy the entire distributable to appDir (Updated casing)
+        copy {
+            from project.file("build/compose/binaries/main/app/NextGPU")
+            into appDir
+        }
+        println "[INFO] Copied application distributable to $appDir"
+
+        // Copy scripts
+        copy {
+            from project.file("src/main/resources/scripts")
+            into scriptsDir
+        }
+
+        // Copy eula-win.rtf
+        copy {
+            from project.file("src/main/resources/windows/eula-win.rtf")
+            into stagingDir
+        }
+
+        // Copy and prepare ISS file
+        def stagedIssFile = project.file("$stagingDir/installer.iss")
+        copy {
+            from issFile
+            into stagingDir
+        }
+
+        // Run Inno Setup compiler
+        def isccFile = project.file("C:/Program Files (x86)/Inno Setup 6/ISCC.exe")
+        if (!isccFile.exists()) {
+            throw new GradleException("Inno Setup Compiler not found at ${isccFile.absolutePath}. Please ensure Inno Setup is installed.")
+        }
+        def isccPath = isccFile.absolutePath
+        def processBuilder = new ProcessBuilder(
+                isccPath,
+                "/DMyAppVersion=${project.version}",
+                "/FNextGPU-${project.version}",
+                stagedIssFile.absolutePath
+        )
+        processBuilder.directory(stagingDir)
+        processBuilder.redirectErrorStream(true)
+
+        def process = processBuilder.start()
+        process.inputStream.eachLine { println it }
+
+        def exitCode = process.waitFor()
+        if (exitCode != 0) {
+            throw new GradleException("Inno Setup compiler failed with exit code: $exitCode")
+        }
+
+        // Copy the generated installer to build output
+        copy {
+            from project.file("$stagingDir/Output")
+            into project.file("build/innosetup-output")
+        }
+
+        println "[SUCCESS] Inno Setup installer created in build/innosetup-output/"
+    }
+}

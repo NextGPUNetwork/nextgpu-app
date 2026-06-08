@@ -1,0 +1,98 @@
+[
+  {
+    "id": 1,
+    "make": "Toyota",
+    "model": "Camry",
+    "year": 2022,
+    "color": "Silver",
+    "price": 27500,
+    "mileage": 8500,
+    "fuelType": "Gasoline",
+    "transmission": "Automatic",
+    "features": ["Bluetooth", "Backup Camera", "Lane Departure Warning"]
+  },
+  {
+    "id": 2,
+    "make": "Honda",
+    "model": "Civic",
+    "year": 2021,
+    "color": "Red",
+    "price": 23000,
+    "mileage": 12400,
+    "fuelType": "Gasoline",
+    "transmission": "CVT",
+    "features": ["Apple CarPlay", "Sunroof", "Honda Sensing"]
+  },
+  {
+    "id": 3,
+    "make": "Ford",
+    "model": "Mustang",
+    "year": 2023,
+    "color": "Blue",
+    "price": 38500,
+    "mileage": 3200,
+    "fuelType": "Gasoline",
+    "transmission": "Manual",
+    "features": ["Leather Seats", "Heated Steering Wheel", "Track Mode"]
+  },
+  {
+    "id": 4,
+    "make": "Tesla",
+    "model": "Model 3",
+    "year": 2024,
+    "color": "White",
+    "price": 48990,
+    "mileage": 500,
+    "fuelType": "Electric",
+    "transmission": "Automatic",
+    "features": ["Autopilot", "Glass Roof", "15\" Touchscreen"]
+  },
+  {
+    "id": 5,
+    "make": "BMW",
+    "model": "X5",
+    "year": 2020,
+    "color": "Black",
+    "price": 62000,
+    "mileage": 30500,
+    "fuelType": "Diesel",
+    "transmission": "Automatic",
+    "features": ["Panoramic Roof", "Harman Kardon Sound", "Wireless Charging"]
+  },
+  {
+    "id": 6,
+    "make": "Chevrolet",
+    "model": "Bolt EV",
+    "year": 2023,
+    "color": "Orange",
+    "price": 26500,
+    "mileage": 7800,
+    "fuelType": "Electric",
+    "transmission": "Automatic",
+    "features": ["Fast Charging", "Rear Camera", "Keyless Entry"]
+  },
+  {
+    "id": 7,
+    "make": "Nissan",
+    "model": "Rogue",
+    "year": 2021,
+    "color": "Gray",
+    "price": 28900,
+    "mileage": 18700,
+    "fuelType": "Gasoline",
+    "transmission": "CVT",
+    "features": ["All-Wheel Drive", "Blind Spot Warning", "NissanConnect"]
+  },
+  {
+    "id": 8,
+    "make": "Hyundai",
+    "model": "Tucson",
+    "year": 2022,
+    "color": "Green",
+    "price": 29950,
+    "mileage": 11200,
+    "fuelType": "Hybrid",
+    "transmission": "Automatic",
+    "features": ["Wireless Android Auto", "Digital Key", "Highway Driving Assist"]
+  }
+]

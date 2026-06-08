@@ -1,0 +1,52 @@
+dependencies {
+    // Spring
+    api 'org.springframework.boot:spring-boot-starter-data-jpa'
+    api 'jakarta.persistence:jakarta.persistence-api:3.1.0'
+    api 'org.springframework.boot:spring-boot-starter-validation'
+    api 'org.springframework.boot:spring-boot-configuration-processor'
+    api 'com.fasterxml.jackson.core:jackson-databind'
+
+    // Add Spring WebSocket dependencies
+    api 'org.springframework.boot:spring-boot-starter-websocket'
+    api 'org.springframework.integration:spring-integration-stomp:6.4.3'
+
+    // Database migrations
+    api 'org.flywaydb:flyway-core'
+
+    // H2 Database, mainly for unit testing
+    api 'com.h2database:h2'
+
+    // Apache commons CSV
+    api 'org.apache.commons:commons-csv:1.9.0'
+
+    // Lombok
+    api 'org.projectlombok:lombok'
+    annotationProcessor 'org.projectlombok:lombok'
+
+    // Java Microbenchmarking Harness for performance testing
+    testImplementation 'org.openjdk.jmh:jmh-core:1.36'
+    annotationProcessor 'org.openjdk.jmh:jmh-generator-annprocess:1.36'
+
+    // Spring Test
+    testImplementation 'org.springframework.boot:spring-boot-starter-test'
+    testImplementation 'org.springframework.security:spring-security-test'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+
+    // Bouncy castle libraries for Quantum safe encryption
+    implementation 'org.bouncycastle:bcprov-jdk18on:1.78.1'
+    implementation 'org.bouncycastle:bcprov-ext-jdk18on:1.78.1'
+    //	implementation 'org.bouncycastle:bcpqc-jdk18on:1.78' // Enabled ONLY as a last resort if bcprov-ext doesn't do the job
+
+    // Common text utilities
+    implementation "org.apache.commons:commons-text:1.12.0"
+
+}
+
+// Explicitly disable bootJar as this will not be a runnable project
+tasks.named('bootJar') {
+    enabled = false
+}
+
+tasks.named('jar') {
+    enabled = true
+}

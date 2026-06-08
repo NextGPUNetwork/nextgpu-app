@@ -1,0 +1,30 @@
+services:
+  comfyui-nvidia:
+    image: mmartial/comfyui-nvidia-docker:latest
+    container_name: comfyui-nvidia
+    ports:
+      - 8188:8188
+    volumes:
+      - ./run:/comfy/mnt
+      - ./basedir:/basedir
+    restart: unless-stopped
+    environment:
+      # set WANTED_UID and WANTED_GID to your user and group as obtained with `id -u` and `id -g`
+      - WANTED_UID=0
+      - WANTED_GID=0
+      - BASE_DIRECTORY=/basedir
+      - SECURITY_LEVEL=normal
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=all
+      - DISABLE_UPGRADES=true
+      - FORCE_CHOWN=true
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities:
+                - gpu
+                - compute
+                - utility

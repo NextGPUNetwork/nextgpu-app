@@ -1,0 +1,54 @@
+wsl --install -d Ubuntu-24.04 --no-launch
+wsl --export Ubuntu-24.04 ubuntu-temp.tar
+wsl --unregister Ubuntu-24.04
+wsl --import nextgpu $env:LOCALAPPDATA\WSL\nextgpu ubuntu-temp.tar
+del ubuntu-temp.tar
+
+wsl -d nextgpu -- bash -c "sudo useradd -m -s /bin/bash nextgpu" 
+wsl -d nextgpu -- bash -c "sudo bash -c 'echo nextgpu:MyVeryS3curedP@$$ | chpasswd'"
+
+wsl -d nextgpu -- bash -c "sudo bash -c 'echo \"nextgpu ALL=(ALL) NOPASSWD: ALL\" | sudo tee /etc/sudoers.d/nextgpu'"
+
+wsl -d nextgpu config --default-user nextgpu
+
+# Install CUDA
+wsl -d nextgpu -- bash -c "wget https://developer.download.nvidia.com/compute/cuda/repos/wsl-ubuntu/x86_64/cuda-wsl-ubuntu.pin"
+wsl -d nextgpu -- bash -c "sudo mv cuda-wsl-ubuntu.pin /etc/apt/preferences.d/cuda-repository-pin-600"
+wsl -d nextgpu -- bash -c "wget https://developer.download.nvidia.com/compute/cuda/12.6.3/local_installers/cuda-repo-wsl-ubuntu-12-6-local_12.6.3-1_amd64.deb"
+wsl -d nextgpu -- bash -c "sudo dpkg -i cuda-repo-wsl-ubuntu-12-6-local_12.6.3-1_amd64.deb"
+wsl -d nextgpu -- bash -c "sudo cp /var/cuda-repo-wsl-ubuntu-12-6-local/cuda-*-keyring.gpg /usr/share/keyrings/"
+wsl -d nextgpu -- bash -c "sudo apt-get update"
+wsl -d nextgpu -- bash -c "sudo apt-get -y install cuda-toolkit-12-6"
+wsl -d nextgpu -- bash -c "sudo apt-get -y install nvidia-utils-550"
+
+# Install Docker
+wsl -d nextgpu -- bash -c "sudo apt-get install -y docker.io"
+wsl -d nextgpu -- bash -c "sudo usermod -aG docker nextgpu"
+wsl -d nextgpu -- bash -c "sudo systemctl enable --now docker"
+
+# Install NVIDIA Container Toolkit (hardcoded Ubuntu 2404)
+wsl -d nextgpu -- bash -c "curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | sudo gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg"
+wsl -d nextgpu -- bash -c "curl -s -L https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list | sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' | sudo tee /etc/apt/sources.list.d/nvidia-container-toolkit.list"
+
+wsl -d nextgpu -- bash -c "sudo apt-get update"
+wsl -d nextgpu -- bash -c "sudo apt-get install -y nvidia-container-toolkit"
+
+# Configure Docker runtime to use NVIDIA
+wsl -d nextgpu -- bash -c "sudo nvidia-ctk runtime configure --runtime=docker"
+
+# Restart Docker for changes to take effect
+wsl -d nextgpu -- bash -c "sudo systemctl restart docker"
+
+# Run Ollama
+wsl -d nextgpu -- bash -c "sudo docker stop ollama || true"
+wsl -d nextgpu -- bash -c "sudo docker rm ollama || true"
+wsl -d nextgpu -- bash -c "sudo docker run --gpus all -d --name ollama -p 11434:11434 --restart unless-stopped ollama/ollama"
+
+# Pull and run DeepSeek
+wsl -d nextgpu -- bash -c "sudo docker exec ollama ollama run deepseek-r1:1.5b"
+
+# Run ComfyUI
+wsl -d nextgpu -- bash -c "sudo mkdir -p /opt/nextgpu/comfy/run /opt/nextgpu/comfy/basedir"
+wsl -d nextgpu -- bash -c "sudo chown -R 1000:1000 /opt/nextgpu/comfy"
+wsl -d nextgpu -- bash -c "sudo docker rm -f comfyui-nvidia || true"
+wsl -d nextgpu -- bash -c "sudo docker run -d --name comfyui-nvidia --restart unless-stopped -p 8188:8188 -v /opt/nextgpu/comfy/run:/comfy/mnt -v /opt/nextgpu/comfy/basedir:/basedir -e WANTED_UID=1000 -e WANTED_GID=1000 -e BASE_DIRECTORY=/basedir -e SECURITY_LEVEL=normal -e NVIDIA_VISIBLE_DEVICES=all -e NVIDIA_DRIVER_CAPABILITIES=all -e DISABLE_UPGRADES=true -e FORCE_CHOWN=true --gpus all mmartial/comfyui-nvidia-docker:latest"
