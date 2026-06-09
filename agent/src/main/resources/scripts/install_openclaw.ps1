@@ -383,6 +383,9 @@ export DBUS_SESSION_BUS_ADDRESS=unix:path=`${XDG_RUNTIME_DIR}/bus
 echo "Running doctor --fix..."
 yes "" | CI=true openclaw doctor --fix >/dev/null 2>&1 || true
 
+echo "Installing Gateway..."
+openclaw gateway install
+
 echo "Restarting OpenClaw Gateway to apply our custom token..."
 openclaw gateway restart || openclaw gateway start
 
