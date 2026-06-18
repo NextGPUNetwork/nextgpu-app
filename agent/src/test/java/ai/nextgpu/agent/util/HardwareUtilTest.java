@@ -1,5 +1,7 @@
 package ai.nextgpu.agent.util;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import ai.nextgpu.agent.service.BaseTest;
 import ai.nextgpu.common.model.*;
 import org.junit.jupiter.api.BeforeEach;
@@ -15,6 +17,7 @@ import static org.junit.jupiter.api.Assertions.*;
 
 @SpringBootTest(classes = BaseTest.TestConfig.class)
 class HardwareUtilTest {
+    private static final Logger log = LoggerFactory.getLogger(HardwareUtilTest.class);
 
     @Autowired
     private HardwareUtil hardwareUtil;
@@ -150,7 +153,7 @@ class HardwareUtilTest {
     @Test
     void shouldDetectComputer() {
         Computer computer = hardwareUtil.detectComputer();
-        System.out.println("Computer: " + computer);
+        log.debug("Computer: {}", computer);
 
         assertNotNull(computer, "Computer should not be null");
         assertFalse(computer.getCpus().isEmpty(), "Computer should have at least 1 CPU");

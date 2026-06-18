@@ -9,7 +9,8 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import ai.nextgpu.agent.model.Image;
 import ai.nextgpu.common.model.PosthogEvent;
 import lombok.Getter;
-import lombok.extern.slf4j.Slf4j;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.ByteArrayResource;
@@ -38,15 +39,20 @@ import java.util.concurrent.TimeUnit;
  *   - Building and queuing ComfyUI workflows
  *   - Polling for results and retrieving generated images
  */
-@Slf4j
 @Getter
 @Service
 public class NextGpuVisionService {
 
+    private static final Logger log = LoggerFactory.getLogger(NextGpuVisionService.class);
+
     private final RestTemplate restTemplate;
+
     private final ObjectMapper objectMapper;
+
     private final String serverAddress;
+
     private final Path comfyBaseDir;
+
     private final AnalyticsService analyticsService;
 
     @Autowired
@@ -64,7 +70,7 @@ public class NextGpuVisionService {
     }
 
     // ----------------------------------------------------------------
-    // ComfyUI API — low-level primitives
+    // ComfyUI API - low-level primitives
     // ----------------------------------------------------------------
 
     public JsonNode queuePrompt(Map<String, Object> workflow) {
@@ -128,7 +134,7 @@ public class NextGpuVisionService {
     // ----------------------------------------------------------------
 
     /**
-     * Convenience overload — uses default steps (30), temperature (0.75), denoise (1.0).
+     * Convenience overload - uses default steps (30), temperature (0.75), denoise (1.0).
      */
     public Map<String, Object> createWorkflow(
             String positivePrompt,
@@ -241,7 +247,7 @@ public class NextGpuVisionService {
         decode.set("inputs", decodeInputs);
         workflow.set("decode", decode);
 
-        // Image nodes — shared inputs object
+        // Image nodes - shared inputs object
         ObjectNode saveInputs = objectMapper.createObjectNode();
         saveInputs.set("images", objectMapper.createArrayNode().add("decode").add(0));
         saveInputs.put("filename_prefix", "ComfyUI");
@@ -362,7 +368,7 @@ public class NextGpuVisionService {
     }
 
     // ----------------------------------------------------------------
-    // TODO stubs — future capabilities
+    // TODO stubs - future capabilities
     // ----------------------------------------------------------------
 
     public String classifyImage(Image image) {

@@ -3,7 +3,7 @@ package ai.nextgpu.agent.ui.component.hub.sidebar
 import ai.nextgpu.agent.model.ChatSession
 import ai.nextgpu.agent.model.Project
 import ai.nextgpu.agent.service.NextGpuAiService
-import ai.nextgpu.agent.ui.component.common.CustomButton
+import ai.nextgpu.agent.ui.component.CustomButton
 import ai.nextgpu.agent.ui.component.popup.settings.model.SettingsViewModel
 import ai.nextgpu.agent.ui.theme.*
 import androidx.compose.animation.*
@@ -88,7 +88,7 @@ fun Sidebar(
             val updatedChats = aiService.getChatSessions()
             val updatedProjects = aiService.getProjects()
             withContext(Dispatchers.Main) {
-                // .toList() forces a new memory reference, guaranteeing a UI redraw!
+                // .toList() forces a new memory reference, guaranteeing a UI redraw
                 recentChats = updatedChats.toList()
                 projects = updatedProjects.toList()
             }
@@ -100,11 +100,6 @@ fun Sidebar(
             refreshChats()
         }
     }
-
-    // Local state for "Edit/Select" mode.
-//    var isSelectionMode by remember { mutableStateOf(false) }
-//    var selectedSessionIds by remember { mutableStateOf(setOf<Long>()) }
-//    var isHeaderMenuOpen by remember { mutableStateOf(false) }
 
     // Local state for "Edit/Select" mode.
     var isSelectionMode by remember { mutableStateOf(false) }
@@ -322,7 +317,6 @@ fun Sidebar(
         }
 
         // --- Chat History Section ---
-        // --- Chat History Section ---
         if (!isCollapsed) {
             Spacer(modifier = Modifier.height(SpacingMedium))
 
@@ -407,11 +401,11 @@ fun Sidebar(
                 }
             }
 
+            // TODO: Instead of two statements, do SpacingTiny x 2
+            Spacer(modifier = Modifier.height(SpacingTiny))
             Spacer(modifier = Modifier.height(SpacingTiny))
 
-            Spacer(modifier = Modifier.height(SpacingTiny))
-
-            // 🚨 CRITICAL FIX: Calculate lists OUTSIDE the LazyColumn so Compose
+            // ðŸš¨ CRITICAL FIX: Calculate lists OUTSIDE the LazyColumn so Compose
             // tracks the state read and structurally rebuilds the list on 0->1 transitions!
             val starredChats = recentChats.filter { it.starred == true }
             val unstarredChats = recentChats.filter { it.starred != true }
@@ -461,11 +455,11 @@ fun Sidebar(
                                 showRenameDialog = true
                             },
                             onStar = {
-                                // 1. Optimistic Update: Instantly force the UI to react
+                                // Optimistic Update: Instantly force the UI to react
                                 recentChats = recentChats.map {
                                     if (it.id == session.id) it.apply { starred = false } else it
                                 }
-                                // 2. Background Save
+                                // Background Save
                                 coroutineScope.launch(Dispatchers.IO) {
                                     aiService.starChatSession(session, false)
                                     withContext(Dispatchers.Main) { refreshChats() }
@@ -552,11 +546,11 @@ fun Sidebar(
                                 showRenameDialog = true
                             },
                             onStar = {
-                                // 1. Optimistic Update: Instantly force the UI to react
+                                // Optimistic Update: Instantly force the UI to react
                                 recentChats = recentChats.map {
                                     if (it.id == session.id) it.apply { starred = true } else it
                                 }
-                                // 2. Background Save
+                                // Background Save
                                 coroutineScope.launch(Dispatchers.IO) {
                                     aiService.starChatSession(session, true)
                                     withContext(Dispatchers.Main) { refreshChats() }

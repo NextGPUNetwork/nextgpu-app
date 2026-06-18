@@ -73,12 +73,12 @@ fun ResponseHandler(
     isCaseSensitive: Boolean = false,
     isFocused: Boolean = false
 ) {
-    // 1. Parse Content
+    // Parse Content
     val blocks = remember(content) {
         parseContent(content)
     }
 
-    // 2. SETUP SYNTAX HIGHLIGHTING
+    // SETUP SYNTAX HIGHLIGHTING
     // We grab the current theme colors.
     // Because 'ResponseHandler' recomposes when the theme changes, these values will be fresh.
     val isDark = NextGpuTheme.colors.isDark // Assuming this boolean exists in your theme
@@ -111,7 +111,7 @@ fun ResponseHandler(
         // You can also add .language(...) here if you want to preload languages
     }
 
-    // 3. Render Blocks
+    // Render Blocks
     Column(modifier = Modifier.fillMaxWidth()) {
         blocks.forEach { block ->
             when (block) {
@@ -218,7 +218,7 @@ fun ResponseHandler(
                                 h5 = MaterialTheme.typography.h6.copy(color = textColor),
                                 h6 = MaterialTheme.typography.h6.copy(color = textColor),
                                 paragraph = MaterialTheme.typography.body1.copy(color = textColor),
-                                // 2. Style the text inside the highlight
+                                // Style the text inside the highlight
                                 code = MaterialTheme.typography.body2.copy(
                                     color = textColor,
                                     fontFamily = JetBrainsMono,
@@ -327,7 +327,7 @@ private fun ComposableTable(
                         .width(tableWidth) // STRICT WIDTH: Allows weight(1f) to work flawlessly
                         .padding(bottom = SpacingMedium) // Space for scrollbar
                 ) {
-                    // 1. Render Headers
+                    // Render Headers
                     table.headers?.let { headers ->
                         Row(
                             modifier = Modifier
@@ -361,7 +361,7 @@ private fun ComposableTable(
                         }
                     }
 
-                    // 2. Render Rows
+                    // Render Rows
                     table.rows.forEach { row ->
                         Row(
                             modifier = Modifier
@@ -419,7 +419,7 @@ private fun ComposableTable(
             }
         }
 
-        // 3. Copy Footer (Stays fixed, matching bubble width)
+        // Copy Footer (Stays fixed, matching bubble width)
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -471,12 +471,12 @@ private fun parseContent(text: String): List<ContentBlock> {
     val length = text.length
 
     while (cursor < length) {
-        // 1. Scan for next Math Delimiter (ignoring escaped ones)
+        // Scan for next Math Delimiter (ignoring escaped ones)
         val nextDollar = text.findValidDelimiter("$$", cursor)
         val nextBracket = text.findValidDelimiter("\\[", cursor)
         val nextParen   = text.findValidDelimiter("\\(", cursor)
 
-        // 2. Scan for next Table Start
+        // Scan for next Table Start
         // A table line must start with '|' (ignoring whitespace).
         // Usually, a table block starts on a new line.
         val nextTableRaw = text.indexOf("\n|", cursor)
@@ -486,7 +486,7 @@ private fun parseContent(text: String): List<ContentBlock> {
         else if (nextTableRaw != -1) nextTableRaw + 1
         else -1
 
-        // 3. Determine Winner: Who comes first?
+        // Determine Winner: Who comes first?
         val mathStarts = listOfNotNull(nextDollar, nextBracket, nextParen)
         val mathMatch = mathStarts.minByOrNull { it.first }
 
@@ -683,7 +683,7 @@ private fun CodeBlockWithHeader(
 }
 
 private fun extractLanguageAndContent(raw: String): Pair<String, String> {
-    // 1. Find the Opening Fence (e.g. ```python)
+    // Find the Opening Fence (e.g. ```python)
     val startFenceIdx = raw.indexOf("```")
     if (startFenceIdx == -1) return "" to raw
 
@@ -699,7 +699,7 @@ private fun extractLanguageAndContent(raw: String): Pair<String, String> {
     // Extract Language
     val language = raw.substring(startFenceIdx + 3, endOfStartLine).trim()
 
-    // 2. Find the Closing Fence (```) starting AFTER the first line
+    // Find the Closing Fence (```) starting AFTER the first line
     // We look for the next occurrence of "```"
     val contentStart = endOfStartLine + 1
     val closingFenceIdx = raw.indexOf("```", contentStart)
@@ -731,10 +731,10 @@ private fun HighlightedMarkdownText(
 ) {
     val styledText = remember(node, sourceText, searchText, isCaseSensitive, isFocused, typographyStyle, typographyParams) {
         buildAnnotatedString {
-            // 1. Build the markdown structure with the correct base style (e.g., H1, H2, or Paragraph)
+            // Build the markdown structure with the correct base style (e.g., H1, H2, or Paragraph)
             buildInlineMarkdown(node, sourceText, typographyParams)
 
-            // 2. Inject highlights on top
+            // Inject highlights on top
             if (searchText.length >= 2) {
                 applySearchHighlight(searchText, isCaseSensitive, isFocused)
             }
@@ -795,8 +795,8 @@ private fun HighlightedParagraphText(
     )
 }
 
-// 1. Recursively builds the text with native Markdown styling
-// 1. Recursively builds the text with native Markdown styling
+// Recursively builds the text with native Markdown styling
+// Recursively builds the text with native Markdown styling
 private fun AnnotatedString.Builder.buildInlineMarkdown(
     node: ASTNode,
     source: String,
@@ -853,7 +853,7 @@ private fun AnnotatedString.Builder.buildInlineMarkdown(
     }
 }
 
-// 2. Applies highlight spans ON TOP of the existing styles
+// Applies highlight spans ON TOP of the existing styles
 private fun AnnotatedString.Builder.applySearchHighlight(
     query: String,
     isCaseSensitive: Boolean,

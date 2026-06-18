@@ -10,7 +10,7 @@ import ai.nextgpu.agent.ui.component.popup.settings.openclaw.OpenclawSetupView
 import ai.nextgpu.agent.ui.theme.*
 
 // --------------------------------------------------------
-// 1. THE ROUTER (This forces the instant UI updates)
+// THE ROUTER (This forces the instant UI updates)
 // --------------------------------------------------------
 @Composable
 fun OpenclawTabView(viewModel: SettingsViewModel) {

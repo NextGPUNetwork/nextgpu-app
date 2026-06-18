@@ -1,5 +1,7 @@
 package ai.nextgpu.agent.util;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import ai.nextgpu.agent.service.BaseTest;
 import org.apache.tika.metadata.Metadata;
 import org.junit.jupiter.api.Test;
@@ -10,6 +12,7 @@ import java.nio.file.Path;
 import static org.junit.jupiter.api.Assertions.*;
 
 class FileUtilTest extends BaseTest {
+    private static final Logger log = LoggerFactory.getLogger(FileUtilTest.class);
 
     @TempDir
     Path tempDir;
@@ -269,7 +272,7 @@ class FileUtilTest extends BaseTest {
     void testExtractFile_withImgPdf() throws Exception {
         File pdfFile = new File(getClass().getClassLoader().getResource("attachments/img.pdf").getFile());
         String result = FileUtil.extractFile(pdfFile);
-        System.out.print(result);
+        log.debug(result);
 
         assertNotNull(result, "Result should not be null for PDF");
         assertTrue(result.contains("THIS IS ADDED TEXT NOT A IMAGE"));
@@ -318,7 +321,7 @@ class FileUtilTest extends BaseTest {
     void testExtractFile_withPpt() throws Exception {
         File pptFile = new File(getClass().getClassLoader().getResource("attachments/test.ppt").getFile());
         String result = FileUtil.extractFile(pptFile);
-        System.out.print(result);
+        log.debug(result);
 
         assertNotNull(result, "Result should not be null for PPT");
         assertFalse(result.isBlank());
@@ -367,7 +370,7 @@ class FileUtilTest extends BaseTest {
         File texFile = new File(getClass().getClassLoader().getResource("attachments/test.xml").getFile());
 
         String result = FileUtil.extractFile(texFile);
-        System.out.print(result);
+        log.debug(result);
 
         assertNotNull(result, "Result should not be null for TEX");
         assertTrue(result.contains("<feature>Lane Departure Warning</feature>"));

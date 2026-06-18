@@ -22,7 +22,7 @@ fun NumericStepper(
     max: Int,
     step: Int = 128
 ) {
-    // 1. Calculate limits for visual feedback
+    // Calculate limits for visual feedback
     val atMin = value <= min
     val atMax = value >= max
 
@@ -35,7 +35,7 @@ fun NumericStepper(
             modifier = Modifier.padding(bottom = SpacingMicro)
         )
 
-        // 2. Wrap the stepper in a bordered box so it visually matches the text fields
+        // Wrap the stepper in a bordered box so it visually matches the text fields
         Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -50,7 +50,7 @@ fun NumericStepper(
             // DECREASE BUTTON
             IconButton(
                 onClick = { if (!atMin) onChange(value - step) },
-                enabled = !atMin, // 3. Actually disable the button when at the limit
+                enabled = !atMin, // Actually disable the button when at the limit
                 modifier = Modifier.size(SpacingHuge)
             ) {
                 Icon(
@@ -74,7 +74,7 @@ fun NumericStepper(
             // INCREASE BUTTON
             IconButton(
                 onClick = { if (!atMax) onChange(value + step) },
-                enabled = !atMax, // 3. Actually disable the button when at the limit
+                enabled = !atMax, // Actually disable the button when at the limit
                 modifier = Modifier.size(SpacingHuge)
             ) {
                 Icon(

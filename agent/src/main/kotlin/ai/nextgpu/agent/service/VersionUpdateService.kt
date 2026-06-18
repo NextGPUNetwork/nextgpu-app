@@ -13,12 +13,14 @@ import java.io.FileOutputStream
 import java.net.HttpURLConnection
 import java.net.URL
 import kotlin.system.exitProcess
+import org.slf4j.LoggerFactory
 
 @Service
 class VersionUpdateService @Autowired constructor(
     private val nextGpuWebService: NextGpuWebService,
     @Value("\${spring.application.version:0.1.0}") val currentVersion: String
 ) {
+    private val logger = LoggerFactory.getLogger(VersionUpdateService::class.java)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var downloadJob: Job? = null
     private var currentTempFile: File? = null
@@ -50,7 +52,7 @@ class VersionUpdateService @Autowired constructor(
                 }
             } catch (e: Exception) {
                 // Check if it's a 404, which might mean the endpoint isn't implemented on server yet
-                println("Failed to check for updates: ${e.message}")
+                logger.error("Failed to check for updates", e)
             }
         }
     }

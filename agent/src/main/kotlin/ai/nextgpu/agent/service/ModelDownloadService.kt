@@ -6,8 +6,11 @@ import ai.nextgpu.agent.model.PromptModel
 import androidx.compose.runtime.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.sync.Mutex
+import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.stereotype.Service
+
+private val logger = LoggerFactory.getLogger(ModelDownloadService::class.java)
 
 // ============================================================
 // PAUSE GATE
@@ -146,7 +149,7 @@ class ModelDownloadService @Autowired constructor(
         } catch (e: Exception) {
             // No longer silent — a failure here used to leave the UI stale
             // with no signal at all.
-            e.printStackTrace()
+            logger.error("Failed to refresh model catalog and installed models", e)
         } finally {
             withContext(Dispatchers.Main) {
                 isLoading = false

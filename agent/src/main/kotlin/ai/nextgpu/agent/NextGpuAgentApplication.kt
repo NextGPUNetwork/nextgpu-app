@@ -6,7 +6,7 @@ import ai.nextgpu.agent.service.ModelDownloadService
 import ai.nextgpu.agent.service.NextGpuAgentService
 import ai.nextgpu.agent.service.VersionUpdateService
 import ai.nextgpu.agent.ui.*
-import ai.nextgpu.agent.ui.component.common.CustomButton
+import ai.nextgpu.agent.ui.component.CustomButton
 import ai.nextgpu.agent.ui.component.hub.HubScreen
 import ai.nextgpu.agent.ui.component.popup.settings.SettingsPopup
 import ai.nextgpu.agent.ui.component.popup.settings.model.SettingsViewModel
@@ -30,6 +30,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.*
+import org.slf4j.LoggerFactory
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -61,6 +62,8 @@ import javax.swing.JPasswordField
 )
 open class NextGPUAgentApplication
 
+private val logger = LoggerFactory.getLogger(NextGPUAgentApplication::class.java)
+
 lateinit var springContext: ConfigurableApplicationContext
 
 
@@ -75,7 +78,7 @@ fun main() {
 
     Thread.setDefaultUncaughtExceptionHandler { _, throwable ->
         analyticsService.notifyCrashReport(throwable)
-        throwable.printStackTrace()
+        logger.error("Uncaught exception", throwable)
     }
 
     GlobalPropertyConfig.APPLICATION_UP_TIMESTAMP = System.currentTimeMillis()
@@ -85,6 +88,10 @@ fun main() {
         // Notify the application uptime before the application exits
         runCatching {
             analyticsService.notifyApplicationUpTime()
+        }
+
+        runCatching {
+            OSUtil.keepAliveProcess.destroy()
         }
 
         runCatching {
@@ -139,12 +146,19 @@ fun main() {
                     isWindowResizable = resizable
                     windowWidth = targetWidth
                     windowHeight = targetHeight
-                }, showExitDialog = showExitDialog, onExitDialogDismiss = { showExitDialog = false }, onConfirmExit = {
+                },
+                showExitDialog = showExitDialog,
+                onExitDialogDismiss = { showExitDialog = false },
+                onConfirmExit = {
                     if (versionUpdateService.isDownloading) {
                         versionUpdateService.cancelDownload()
                     }
                     exitCleanly(::exitApplication)
-                })
+                },
+                exitApplication = { exitApplication() }
+            )
+
+
         }
     }
 }
@@ -156,11 +170,12 @@ fun App(
     onWindowModeChange: (Boolean, androidx.compose.ui.unit.Dp, androidx.compose.ui.unit.Dp) -> Unit = { _, _, _ -> },
     showExitDialog: Boolean = false,
     onExitDialogDismiss: () -> Unit = {},
-    onConfirmExit: () -> Unit = {}
+    onConfirmExit: () -> Unit = {},
+    exitApplication: () -> Unit = {}
 ) {
-    val service = remember { springContext.getBean(NextGpuAgentService::class.java) }
-    val downloadService = remember { springContext.getBean(ModelDownloadService::class.java) }
-    val versionUpdateService = remember { springContext.getBean(VersionUpdateService::class.java) }
+    val service = remember { springContext.getBean<NextGpuAgentService>() }
+    val downloadService = remember { springContext.getBean<ModelDownloadService>() }
+    val versionUpdateService = remember { springContext.getBean<VersionUpdateService>() }
     val settingsViewModel = remember { SettingsViewModel(service, downloadService, versionUpdateService) }
 
     val globalConfig = remember { springContext.getBean(GlobalPropertyConfig::class.java) }
@@ -169,7 +184,12 @@ fun App(
     val username = service.getGlobalProperty(GlobalPropertyConfig.OS_USERNAME).getValue<String>()
 
     // NEW STATE: Control the visibility of the native system password dialog
+    var wslStatus by remember { mutableStateOf(false) }
     var showSystemPasswordDialog by remember { mutableStateOf(false) }
+
+    var showEnableWSLDialog by remember { mutableStateOf(false) }
+
+    var showSystemRebootDialog by remember { mutableStateOf(false) }
 
     // Initial route calculation
     val currentScreen = remember {
@@ -188,6 +208,14 @@ fun App(
     }
 
     LaunchedEffect(currentScreen.value) {
+        // Check the status of WSL2
+        wslStatus = OSUtil.isWslEnabled()
+
+        if(!wslStatus) {
+            showEnableWSLDialog = true
+            return@LaunchedEffect
+        }
+
         val isSetupPhase = currentScreen.value == "welcome" || currentScreen.value == "launch"
         if (isSetupPhase) {
             onWindowModeChange(false, 1200.dp, 800.dp)
@@ -200,6 +228,10 @@ fun App(
     LaunchedEffect(currentScreen.value) {
         // Skip checking for the password if we are still setting up the app
         if (currentScreen.value == "welcome" || currentScreen.value == "launch") {
+            return@LaunchedEffect
+        }
+        // Check the status of WSL2
+        if(!wslStatus) {
             return@LaunchedEffect
         }
 
@@ -575,6 +607,130 @@ fun App(
                             CustomButton(
                                 text = "Quit",
                                 onClick = onConfirmExit,
+                                backgroundColor = NextGpuTheme.colors.primary,
+                                textColor = Primary03Black,
+                                elevation = false,
+                                contentPadding = PaddingValues(horizontal = SpacingLarge, vertical = SpacingSmall)
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        if (showEnableWSLDialog) {
+            Dialog(onDismissRequest = onExitDialogDismiss) {
+                Surface(
+                    shape = RoundedCornerShape(RadiusMedium),
+                    color = NextGpuTheme.colors.surface,
+                    contentColor = NextGpuTheme.colors.textPrimary,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = SpacingLarge)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(
+                            top = SpacingDialog, start = SpacingDialog, end = SpacingDialog, bottom = SpacingLarge
+                        )
+                    ) {
+                        Text(
+                            text = "Enable WSL",
+                            style = NextGpuTheme.typography.h6,
+                            modifier = Modifier.padding(bottom = SpacingSmall)
+                        )
+
+                        Text(
+                            text = "WSL is required to run NextGPU. Please enable WSL and restart the app to continue. The action require system reboot.",
+                            style = NextGpuTheme.typography.body2,
+                            color = NextGpuTheme.colors.textSecondary
+                        )
+
+                        Spacer(modifier = Modifier.height(SpacingLarge))
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.End,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            CustomButton(
+                                text = "Cancel",
+                                onClick = {
+                                    showEnableWSLDialog = false
+                                    exitApplication()
+                                },
+                                backgroundColor = Color.Transparent,
+                                textColor = NextGpuTheme.colors.textSecondary,
+                                elevation = false,
+                                contentPadding = PaddingValues(horizontal = SpacingLarge, vertical = SpacingSmall)
+                            )
+
+                            Spacer(modifier = Modifier.width(SpacingSmall))
+
+                            CustomButton(
+                                text = "Enable",
+                                onClick = {
+                                    OSUtil.enableWsl()
+                                    showEnableWSLDialog = false
+                                    showSystemRebootDialog = true
+                                },
+                                backgroundColor = NextGpuTheme.colors.primary,
+                                textColor = Primary03Black,
+                                elevation = false,
+                                contentPadding = PaddingValues(horizontal = SpacingLarge, vertical = SpacingSmall)
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        if (showSystemRebootDialog) {
+            Dialog(onDismissRequest = onExitDialogDismiss) {
+                Surface(
+                    shape = RoundedCornerShape(RadiusMedium),
+                    color = NextGpuTheme.colors.surface,
+                    contentColor = NextGpuTheme.colors.textPrimary,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = SpacingLarge)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(
+                            top = SpacingDialog, start = SpacingDialog, end = SpacingDialog, bottom = SpacingLarge
+                        )
+                    ) {
+                        Text(
+                            text = "Reboot System",
+                            style = NextGpuTheme.typography.h6,
+                            modifier = Modifier.padding(bottom = SpacingSmall)
+                        )
+
+                        Text(
+                            text = "To continue using NextGPU, please reboot your system.",
+                            style = NextGpuTheme.typography.body2,
+                            color = NextGpuTheme.colors.textSecondary
+                        )
+
+                        Spacer(modifier = Modifier.height(SpacingLarge))
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.End,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            CustomButton(
+                                text = "Cancel",
+                                onClick = exitApplication,
+                                backgroundColor = Color.Transparent,
+                                textColor = NextGpuTheme.colors.textSecondary,
+                                elevation = false,
+                                contentPadding = PaddingValues(horizontal = SpacingLarge, vertical = SpacingSmall)
+                            )
+
+                            Spacer(modifier = Modifier.width(SpacingSmall))
+
+                            CustomButton(
+                                text = "Reboot",
+                                onClick = {
+                                    OSUtil.restartSystem()
+                                    exitApplication()
+                                },
                                 backgroundColor = NextGpuTheme.colors.primary,
                                 textColor = Primary03Black,
                                 elevation = false,

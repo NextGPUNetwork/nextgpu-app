@@ -1,6 +1,6 @@
 package ai.nextgpu.agent.ui.component.hub.sidebar
 
-import androidx.compose.foundation.background
+import ai.nextgpu.agent.ui.component.CustomButton
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.Card
@@ -10,14 +10,12 @@ import androidx.compose.material.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import ai.nextgpu.agent.ui.component.common.CustomButton
-import ai.nextgpu.agent.ui.component.common.IconPosition
+import ai.nextgpu.agent.ui.component.IconPosition
 import ai.nextgpu.agent.ui.theme.*
 
 @Composable
@@ -32,7 +30,7 @@ fun ProviderPromoCard() {
         Box(
             modifier = Modifier.fillMaxWidth()
         ) {
-            // 1. DECORATION: SVG at Bottom Left
+            // DECORATION: SVG at Bottom Left
             Icon(
                 painter = painterResource("images/promo-card-design.svg"),
                 contentDescription = null,
@@ -42,7 +40,7 @@ fun ProviderPromoCard() {
 
             )
 
-            // 2. MAIN CONTENT
+            // MAIN CONTENT
             Column(
                 modifier = Modifier.padding(SpacingMedium)
             ) {
@@ -66,7 +64,7 @@ fun ProviderPromoCard() {
 
                 Spacer(modifier = Modifier.height(SpacingLarge))
 
-                // 3. CTA BUTTON (Aligned End)
+                // CTA BUTTON (Aligned End)
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.Start

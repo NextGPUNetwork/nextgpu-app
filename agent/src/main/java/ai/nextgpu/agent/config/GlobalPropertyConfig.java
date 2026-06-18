@@ -7,16 +7,18 @@ import ai.nextgpu.common.model.GlobalProperty;
 import ai.nextgpu.agent.repository.GlobalPropertyRepository;
 import ai.nextgpu.agent.util.OSUtil;
 import ai.nextgpu.common.util.StringUtil;
-import lombok.extern.slf4j.Slf4j;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 import java.util.Date;
 
-@Slf4j
 @Configuration
 public class GlobalPropertyConfig {
+
+    private static final Logger log = LoggerFactory.getLogger(GlobalPropertyConfig.class);
 
     // Contains the token used during the session
     public static final String JWT_TOKEN = "JWT_TOKEN";

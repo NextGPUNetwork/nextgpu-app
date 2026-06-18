@@ -24,11 +24,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import ai.nextgpu.agent.service.NextGpuAgentService
 import ai.nextgpu.agent.springContext
-import ai.nextgpu.agent.ui.component.common.CustomButton
 import ai.nextgpu.agent.ui.theme.*
 import ai.nextgpu.agent.util.BenchmarkUtil
 import ai.nextgpu.agent.util.OSUtil
 import ai.nextgpu.agent.config.GlobalPropertyConfig
+import ai.nextgpu.agent.ui.component.CustomButton
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -48,6 +48,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.window.Dialog
+import org.slf4j.LoggerFactory
+
+private val logger = LoggerFactory.getLogger("ai.nextgpu.agent.ui.SetupScreen")
 
 @OptIn(ExperimentalMaterialApi::class)
 @Composable
@@ -102,7 +105,6 @@ fun SetupScreen(
     var currentSetupStepKey by remember { mutableStateOf("hw_scan") }
     var setupLogs by remember { mutableStateOf("> System installation finished.\n> Awaiting manual hardware detection start...") }
 
-    // Reusable install trigger
     // Reusable install trigger
     val startInstallation = { overwrite: Boolean ->
         isInstalling = true
@@ -222,7 +224,7 @@ fun SetupScreen(
         val desc = stepDescriptions[key] ?: key
         val finalMsg = logDetail ?: desc
         setupLogs += "\n> $finalMsg"
-        println("SETUP LOG: $finalMsg")
+        logger.info("SETUP LOG: {}", finalMsg)
     }
 
     LaunchedEffect(isSetupRunning) {
@@ -307,7 +309,7 @@ fun SetupScreen(
                     }
                 }
             } catch (e: Exception) {
-                e.printStackTrace()
+                logger.error("Setup workflow failed at step {}", currentSetupStepKey, e)
                 appendSetupLog(currentSetupStepKey, "Error: ${e.message}")
                 withContext(Dispatchers.Main) { isSetupRunning = false }
             }
@@ -405,7 +407,7 @@ fun SetupScreen(
                     Divider(color = NextGpuTheme.colors.border)
 
                     Text(
-                        text = "⚠️ Please do not close NextGPU or put your computer to sleep during this process.",
+                        text = "Warning: Please do not close NextGPU or put your computer to sleep during this process.",
                         style = MaterialTheme.typography.caption,
                         color = WarnText,
                         fontWeight = FontWeight.Bold
@@ -417,7 +419,7 @@ fun SetupScreen(
             // --- UNIFIED PROGRESS BAR ---
             AnimatedVisibility(visible = showProgressAndLogs) {
 
-                // 1. Create a continuous sweeping offset for the shimmer
+                // Create a continuous sweeping offset for the shimmer
                 val shimmerOffset by infiniteTransition.animateFloat(
                     initialValue = -1000f,
                     targetValue = 3000f, // Sweep far enough to cover wide screens
@@ -427,7 +429,7 @@ fun SetupScreen(
                     )
                 )
 
-                // 2. Create the animated brush (sweeps from primaryVariant -> primary -> primaryVariant)
+                // Create the animated brush (sweeps from primaryVariant -> primary -> primaryVariant)
                 val animatedProgressBrush = Brush.linearGradient(
                     colors = listOf(
                         NextGpuTheme.colors.primaryVariant,
@@ -669,15 +671,15 @@ fun SetupScreen(
                         modifier = Modifier.defaultMinSize(minHeight = 56.dp),
                         onClick = {
                             scope.launch {
-                                // 1. If it's a brand new install, check for existing WSL instance
+                                // If it's a brand new install, check for existing WSL instance
                                 if (!hasStarted && OSUtil.checkIfNextGpuExists()) {
                                     showOverwriteDialog = true
                                 }
-                                // 2. If we have credentials, just resume/start
+                                // If we have credentials, just resume/start
                                 else if (OSUtil.hasInstallCredentials()) {
                                     startInstallation(false) // false = resume/don't overwrite
                                 }
-                                // 3. Otherwise, get the password first
+                                // Otherwise, get the password first
                                 else {
                                     pendingOverwriteChoice = false
                                     showPasswordDialog = true

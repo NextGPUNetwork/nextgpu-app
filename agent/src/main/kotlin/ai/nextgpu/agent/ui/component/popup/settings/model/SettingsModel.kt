@@ -1,7 +1,7 @@
 package ai.nextgpu.agent.ui.component.popup.settings.model
 
 // ========================================================
-// 1. HIGHEST LEVEL: The Main Sidebar Tabs
+// HIGHEST LEVEL: The Main Sidebar Tabs
 // ========================================================
 data class TabModel(
     val id: String,
@@ -12,7 +12,7 @@ data class TabModel(
 )
 
 // ========================================================
-// 2. SECOND LEVEL: The Top Sub-navigation (e.g., Appearance, Modes)
+// SECOND LEVEL: The Top Sub-navigation (e.g., Appearance, Modes)
 // ========================================================
 data class SubTabModel(
     val id: String,
@@ -21,7 +21,7 @@ data class SubTabModel(
 )
 
 // ========================================================
-// 3. THIRD LEVEL: A grouped section with a header
+// THIRD LEVEL: A grouped section with a header
 // ========================================================
 data class SettingsSectionModel(
     val id: String,
@@ -30,7 +30,7 @@ data class SettingsSectionModel(
 )
 
 // ========================================================
-// 4. FOURTH LEVEL: The actual interactive controls
+// FOURTH LEVEL: The actual interactive controls
 // ========================================================
 sealed class SettingItemModel {
     abstract val id: String

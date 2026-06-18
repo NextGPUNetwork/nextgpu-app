@@ -1,6 +1,7 @@
 package ai.nextgpu.common.util;
 
-import lombok.extern.slf4j.Slf4j;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.apache.commons.text.similarity.JaroWinklerDistance;
 import org.apache.commons.text.similarity.LevenshteinDistance;
 import org.springframework.boot.configurationprocessor.json.JSONObject;
@@ -13,9 +14,10 @@ import java.util.Random;
 /**
  * A utility class for generating and managing strings with various configurations.
  */
-@Slf4j
 @Component
 public class StringUtil {
+
+    private static final Logger log = LoggerFactory.getLogger(StringUtil.class);
 
     private static final String BASE36_CHARS = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
 

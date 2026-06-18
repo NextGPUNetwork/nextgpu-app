@@ -1,7 +1,8 @@
 package ai.nextgpu.agent.service;
 
 import ai.nextgpu.common.service.SecurityService;
-import lombok.extern.slf4j.Slf4j;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.bouncycastle.jcajce.SecretKeyWithEncapsulation;
 import org.bouncycastle.jcajce.spec.KEMExtractSpec;
 import org.bouncycastle.jcajce.spec.KEMGenerateSpec;
@@ -21,7 +22,8 @@ import java.util.Arrays;
 import java.util.Base64;
 
 
-@Slf4j
 @Service
 public class AgentSecurityService extends SecurityService {
+
+    private static final Logger log = LoggerFactory.getLogger(AgentSecurityService.class);
 }

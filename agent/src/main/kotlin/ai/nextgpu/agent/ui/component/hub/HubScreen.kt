@@ -14,8 +14,6 @@ import ai.nextgpu.agent.ui.component.hub.sidebar.Sidebar
 import ai.nextgpu.agent.ui.component.popup.settings.model.SettingsViewModel
 import ai.nextgpu.agent.ui.theme.*
 import ai.nextgpu.agent.util.OSUtil
-import ai.nextgpu.common.model.AiModelRegistry
-import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -109,7 +107,7 @@ fun HubScreen(
     // downloadService.installedModels is a mutableStateOf in the service.
     // Reading it inside derivedStateOf creates a real Compose dependency,
     // so the moment refreshSync() rewrites it (after any download/delete/
-    // manual refresh), these recompute and every reader recomposes — the
+    // manual refresh), these recompute and every reader recomposes - the
     // exact same mechanism that already updates the download-progress UI
     // inside the Settings popup.
     // =========================================================
@@ -147,7 +145,7 @@ fun HubScreen(
     var currentMode by remember { mutableStateOf(PromptMode.TEXT) }
     var selectedImageModel by remember { mutableStateOf<String?>(null) }
 
-    // 2. Move auto-select logic here (previously in PromptRegion)
+    // Move auto-select logic here (previously in PromptRegion)
     LaunchedEffect(installedComfyModelNames) {
         when {
             installedComfyModelNames.isEmpty() -> selectedImageModel = null
@@ -221,7 +219,7 @@ fun HubScreen(
             return@let
         }
 
-        // 1. Instantly lock UI, clear text box, and show generating state
+        // Instantly lock UI, clear text box, and show generating state
         uiState = uiState.copy(
             isGenerating = true, promptText = TextFieldValue("")
         )
@@ -231,14 +229,14 @@ fun HubScreen(
         // Launch on Main to ensure atomic UI state updates before shifting to IO
         coroutineScope.launch(Dispatchers.Main) {
             try {
-                // 2. Save session on IO using the TEXT model (prevents title-generation crash)
+                // Save session on IO using the TEXT model (prevents title-generation crash)
                 val sessionResult = withContext(Dispatchers.IO) {
                     var session = uiState.currentSession ?: ChatSession()
                     aiService.updateChatSession(session, userMessage, sessionModelName, isPrivateMode)
                 }
                 val sessionIdStr = sessionResult.id.toString()
 
-                // 3. Update UI to show the user's prompt immediately
+                // Update UI to show the user's prompt immediately
                 if (uiState.currentSession == null || uiState.currentSession?.id?.toString() == sessionIdStr) {
                     uiState = uiState.copy(
                         currentSession = sessionResult,
@@ -249,7 +247,7 @@ fun HubScreen(
                     uiState = uiState.copy(chatsRefreshTrigger = uiState.chatsRefreshTrigger + 1)
                 }
 
-                // 4. Launch Image Generation Job
+                // Launch Image Generation Job
                 val genJob = coroutineScope.launch(Dispatchers.IO) {
                     try {
                         // Pass the ComfyUI model exclusively to the Vision Service
@@ -302,7 +300,7 @@ fun HubScreen(
                     }
                 }
 
-                // 5. Track job synchronously on Main.
+                // Track job synchronously on Main.
                 activeGenerationJobs[sessionIdStr] = genJob
 
             } catch (e: Exception) {
@@ -346,7 +344,7 @@ fun HubScreen(
     // This effect now OWNS initialization: it awaits the first
     // refreshSync() (dispatcher-safe, fetches on IO) and then clears the
     // loading overlay. Ongoing updates after this are handled purely by
-    // the derivedStateOf reads above — no counter needed.
+    // the derivedStateOf reads above - no counter needed.
     // =========================================================
     LaunchedEffect("init") {
         withContext(Dispatchers.IO) {
@@ -383,9 +381,9 @@ fun HubScreen(
     }
 
     // =========================================================
-    // Selection reconciliation — the ONLY stateful piece left.
+    // Selection reconciliation - the ONLY stateful piece left.
     //
-    // Keyed on the installed Ollama NAMES (Strings → reliable structural
+    // Keyed on the installed Ollama NAMES (Strings -> reliable structural
     // equality), so it runs only when the installed set actually changes.
     // It keeps the current selection if still valid, falls back to the
     // first model otherwise, or null if none remain.
@@ -533,7 +531,7 @@ fun HubScreen(
                     onNewChat = { uiState = uiState.copy(currentSession = null, messages = emptyList()) })
 
                 Box(modifier = Modifier.weight(1f)) {
-                    MainContent(
+                    MainHubContent(
                         isSidebarCollapsed = uiState.isSidebarCollapsed,
                         onToggleSidebar = { uiState = uiState.copy(isSidebarCollapsed = !uiState.isSidebarCollapsed) },
                         userMenuOpen = uiState.userMenuOpen,
@@ -642,119 +640,3 @@ fun HubScreen(
     }
 }
 
-@Composable
-private fun MainContent(
-    isSidebarCollapsed: Boolean,
-    onToggleSidebar: () -> Unit,
-    userMenuOpen: Boolean,
-    onUserMenuOpenChange: (Boolean) -> Unit,
-    modelMenuOpen: Boolean,
-    onModelMenuOpenChange: (Boolean) -> Unit,
-    modelOptions: List<PromptModel>,
-    selectedModel: String?,
-    onSelectModel: (String) -> Unit,
-    hasActiveSession: Boolean,
-    promptText: TextFieldValue,
-    onPromptChange: (TextFieldValue) -> Unit,
-    onSendPrompt: () -> Unit,
-    chatMessages: List<ChatMessage>,
-    pinnedMessages: List<ChatMessage>,
-    onTogglePin: (Long) -> Unit,
-    onToggleRightSidebar: () -> Unit,
-    chatScrollState: ScrollState,
-    messagePositions: MutableMap<Int, Float>,
-    isGeneratingResponse: Boolean,
-    onCancel: () -> Unit,
-    installedComfyModels: List<String>,
-    onGenerateImage: (String, String, Int, Int) -> Unit,
-    searchText: String,
-    onSearchTextChange: (String) -> Unit,
-    isCaseSensitive: Boolean,
-    onCaseSensitiveChange: (Boolean) -> Unit,
-    matchCount: Int,
-    currentMatchIndex: Int,
-    onNextMatch: () -> Unit,
-    onPrevMatch: () -> Unit,
-    activeMessageId: Long?,
-    isPrivateMode: Boolean,
-    onPrivateModeChange: (Boolean) -> Unit,
-    isRightSidebarOpen: Boolean,
-    isThinking: Boolean,
-    onSettings: (tabId: String) -> Unit,
-    currentMode: PromptMode,
-    onModeChange: (PromptMode) -> Unit,
-) {
-    val aiService = remember { Services.aiService }
-
-    Column(modifier = Modifier.fillMaxHeight().fillMaxWidth()) {
-        TopNavigation(
-            isSidebarCollapsed = isSidebarCollapsed,
-            onToggleSidebar = onToggleSidebar,
-            userMenuOpen = userMenuOpen,
-            onUserMenuOpenChange = onUserMenuOpenChange,
-            modelMenuOpen = modelMenuOpen,
-            onModelMenuOpenChange = onModelMenuOpenChange,
-            modelOptions = modelOptions,
-            selectedModel = selectedModel,
-            onSelectModel = onSelectModel,
-            hasActiveSession = hasActiveSession,
-            searchText = searchText,
-            onSearchTextChange = onSearchTextChange,
-            isCaseSensitive = isCaseSensitive,
-            onCaseSensitiveChange = onCaseSensitiveChange,
-            matchCount = matchCount,
-            currentMatchIndex = currentMatchIndex,
-            onNextMatch = onNextMatch,
-            onPrevMatch = onPrevMatch,
-            isPrivateMode = isPrivateMode,
-            onPrivateModeChange = onPrivateModeChange,
-            hasPinnedMessages = pinnedMessages.isNotEmpty(),
-            onToggleRightSidebar = onToggleRightSidebar,
-            isRightSidebarOpen = isRightSidebarOpen,
-            currentMode = currentMode,
-        )
-
-        // Chat area (centered content)
-        Box(
-            modifier = Modifier.weight(1f).fillMaxWidth().padding(horizontal = SpacingLarge),
-            contentAlignment = Alignment.Center
-        ) {
-            if (chatMessages.isEmpty()) {
-                Column(
-                    modifier = Modifier.widthIn(max = MaxContentWidth) // THEME: Restrict width for empty state
-                        .fillMaxWidth(), horizontalAlignment = Alignment.Start
-                ) {
-                    Greeting()
-                    Spacer(modifier = Modifier.height(SpacingLarge))
-//                    SuggestionCards(aiService = aiService, onPromptSelected = { onPromptChange(TextFieldValue(it)) })
-                }
-            } else {
-                ChatSection(
-                    messages = chatMessages,
-                    onPromptChange = onPromptChange,
-                    onTogglePin = onTogglePin,
-                    isGenerating = isGeneratingResponse,
-                    scrollState = chatScrollState, // CHANGED
-                    messagePositions = messagePositions, // ADDED
-                    searchText = searchText,
-                    isCaseSensitive = isCaseSensitive,
-                    activeMessageId = activeMessageId,
-                    isThinking = isThinking,
-                )
-            }
-        }
-
-        PromptRegion(
-            promptText = promptText,
-            onPromptChange = onPromptChange,
-            onSendPrompt = onSendPrompt,
-            isGenerating = isGeneratingResponse,
-            onCancel = onCancel,
-            installedComfyModels = installedComfyModels,
-            onGenerateImage = onGenerateImage,
-            onOpenModelSettings = { onSettings("models") },
-            currentMode = currentMode,
-            onModeChange = onModeChange,
-        )
-    }
-}

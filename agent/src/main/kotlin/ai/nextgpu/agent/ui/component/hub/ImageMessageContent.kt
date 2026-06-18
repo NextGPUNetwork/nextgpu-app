@@ -36,7 +36,10 @@ import androidx.compose.material.Icon
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.res.painterResource
+import org.slf4j.LoggerFactory
 import java.awt.Desktop
+
+private val logger = LoggerFactory.getLogger("ai.nextgpu.agent.ui.component.hub.ImageMessageContent")
 
 @Composable
 fun ImageMessageContent(content: String) {
@@ -79,7 +82,7 @@ fun ImageMessageContent(content: String) {
                                     Desktop.getDesktop().open(outputDir.toFile())
                                 }
                             } catch (e: Exception) {
-                                e.printStackTrace()
+                                logger.error("Failed to open generated image output directory: {}", outputDir, e)
                             }
                         },
                     contentAlignment = Alignment.Center

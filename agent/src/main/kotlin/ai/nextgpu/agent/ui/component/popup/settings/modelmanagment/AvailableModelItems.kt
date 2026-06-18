@@ -1,8 +1,8 @@
 package ai.nextgpu.agent.ui.component.popup.settings.modelmanagment
 
-import ai.nextgpu.agent.ui.component.common.CustomButton
-import ai.nextgpu.agent.ui.component.common.IconPosition
-import ai.nextgpu.agent.ui.component.popup.settings.ModelExpandedDetails
+import ai.nextgpu.agent.ui.component.CustomButton
+import ai.nextgpu.agent.ui.component.IconPosition
+import ai.nextgpu.agent.ui.component.popup.settings.AiModelExpandedDetails
 import ai.nextgpu.common.dto.AiModelDto
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.BorderStroke
@@ -25,7 +25,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.Card
 import androidx.compose.material.Icon
 import androidx.compose.material.IconButton
-import androidx.compose.material.LinearProgressIndicator
 import androidx.compose.material.MaterialTheme
 import androidx.compose.material.Text
 import androidx.compose.runtime.Composable
@@ -211,7 +210,7 @@ fun AvailableModelItem(
             }
 
             AnimatedVisibility(visible = isExpanded) {
-                ModelExpandedDetails(model)
+                AiModelExpandedDetails(model)
             }
         }
     }

@@ -5,7 +5,8 @@ import ai.nextgpu.common.dto.WebSocketMessageDto;
 import ai.nextgpu.common.model.Role;
 import lombok.Getter;
 import lombok.Setter;
-import lombok.extern.slf4j.Slf4j;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.jetbrains.annotations.NotNull;
 import org.springframework.messaging.simp.stomp.StompFrameHandler;
 import org.springframework.messaging.simp.stomp.StompHeaders;
@@ -26,10 +27,11 @@ import java.util.List;
  * lifecycle events such as connection establishment, subscription to topics, and error handling.
  * It also defines a custom message handler for receiving and processing incoming messages.
  */
-@Slf4j
 @Getter
 @Setter
 public class MyStompSessionHandler extends StompSessionHandlerAdapter {
+
+    private static final Logger log = LoggerFactory.getLogger(MyStompSessionHandler.class);
 
     private String username;
 

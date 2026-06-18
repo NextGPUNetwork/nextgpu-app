@@ -1,13 +1,11 @@
 package ai.nextgpu.agent.ui.component.popup.settings.openclaw
 
+import ai.nextgpu.agent.ui.component.CustomButton
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.Divider
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalUriHandler
-import androidx.compose.ui.unit.dp
-import ai.nextgpu.agent.ui.component.common.CustomButton
-import ai.nextgpu.agent.ui.component.popup.settings.SettingsSectionHeader
 import ai.nextgpu.agent.ui.component.popup.settings.components.SettingsItemRow
 import ai.nextgpu.agent.ui.component.popup.settings.components.SettingsToggle
 import ai.nextgpu.agent.ui.component.popup.settings.model.SettingsViewModel
@@ -38,7 +36,7 @@ fun OpenclawSettingsView(viewModel: SettingsViewModel) {
             .fillMaxSize()
             .padding(horizontal = SpacingLarge, vertical = SpacingMedium)
     ) {
-        // 1. Dashboard Action
+        // Dashboard Action
         SettingsButtonRow(
             title = "Open Dashboard",
             description = "Access the OpenClaw web interface to manage skills, memory, and runtime settings.",
@@ -60,7 +58,7 @@ fun OpenclawSettingsView(viewModel: SettingsViewModel) {
 
         Divider(color = NextGpuTheme.colors.border, modifier = Modifier.padding(vertical = SpacingMedium))
 
-        // 2. Navigation Shortcut Toggle
+        // Navigation Shortcut Toggle
         SettingsToggle(
             title = "Pin to Navigation Bar",
             description = "Add a quick-access button for the OpenClaw portal directly to the main app sidebar.",
@@ -70,7 +68,7 @@ fun OpenclawSettingsView(viewModel: SettingsViewModel) {
 
         Divider(color = NextGpuTheme.colors.border, modifier = Modifier.padding(vertical = SpacingMedium))
 
-        // 3. Uninstall Action
+        // Uninstall Action
         SettingsButtonRow(
             title = "Uninstall Integration",
             description = "Remove the OpenClaw service, gateway daemon, and local configuration files from your system.",

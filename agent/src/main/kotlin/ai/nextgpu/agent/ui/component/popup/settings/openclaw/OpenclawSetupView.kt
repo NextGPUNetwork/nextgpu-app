@@ -1,5 +1,6 @@
 package ai.nextgpu.agent.ui.component.popup.settings.openclaw
 
+import ai.nextgpu.agent.ui.component.CustomButton
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
@@ -23,18 +24,17 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
 import ai.nextgpu.agent.util.OSUtil
-import ai.nextgpu.agent.ui.component.common.CustomButton
 import ai.nextgpu.agent.ui.theme.*
 
 @Composable
 fun OpenclawSetupView(onSetupComplete: () -> Unit) {
-    // 1. Read the state from the JSON file immediately
+    // Read the state from the JSON file immediately
     var installState by remember { mutableStateOf(OSUtil.getOpenclawInstallState()) }
 
-    // 2. CRITICAL FIX: If the file says it's running, automatically resume the polling loop!
+    // CRITICAL FIX: If the file says it's running, automatically resume the polling loop!
     var isInstalling by remember { mutableStateOf(installState.status == "RUNNING") }
 
-    // 3. CRITICAL FIX: Pre-load the logs so the terminal doesn't blink empty on reopen
+    // CRITICAL FIX: Pre-load the logs so the terminal doesn't blink empty on reopen
     var rawLogs by remember { mutableStateOf(OSUtil.getOpenclawLogs()) }
 
     val terminalScrollState = rememberScrollState()

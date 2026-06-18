@@ -5,7 +5,8 @@ import ai.nextgpu.agent.repository.CpuRepository;
 import ai.nextgpu.agent.util.HardwareUtil;
 import ai.nextgpu.common.model.Cpu;
 import ai.nextgpu.common.model.PosthogEvent;
-import lombok.extern.slf4j.Slf4j;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.data.redis.core.HashOperations;
@@ -22,15 +23,19 @@ import java.util.UUID;
 import java.util.stream.Collectors;
 
 
-@Slf4j
 @Service
 public class AnalyticsService {
+
+    private static final Logger log = LoggerFactory.getLogger(AnalyticsService.class);
 
     private static final String ANALYTICS_EVENTS_KEY = "analytics:events";
 
     private final CpuRepository cpuRepository;
+
     private final RedisTemplate<String, Object> redisTemplate;
+
     private final NextGpuWebService nextGpuWebService;
+
     private final HardwareUtil hardwareUtil;
 
     private final String machineHash;

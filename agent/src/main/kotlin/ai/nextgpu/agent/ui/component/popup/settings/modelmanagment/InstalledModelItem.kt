@@ -1,8 +1,8 @@
 package ai.nextgpu.agent.ui.component.popup.settings.modelmanagment
 
-import ai.nextgpu.agent.ui.component.common.CustomButton
-import ai.nextgpu.agent.ui.component.common.IconPosition
-import ai.nextgpu.agent.ui.component.popup.settings.ModelExpandedDetails
+import ai.nextgpu.agent.ui.component.CustomButton
+import ai.nextgpu.agent.ui.component.IconPosition
+import ai.nextgpu.agent.ui.component.popup.settings.AiModelExpandedDetails
 import ai.nextgpu.agent.ui.theme.IconSizeSmall
 import ai.nextgpu.agent.ui.theme.NextGpuTheme
 import ai.nextgpu.agent.ui.theme.RadiusMedium
@@ -16,7 +16,6 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.hoverable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -33,7 +32,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.Card
 import androidx.compose.material.Icon
-import androidx.compose.material.IconButton
 import androidx.compose.material.MaterialTheme
 import androidx.compose.material.Text
 import androidx.compose.runtime.Composable
@@ -164,7 +162,7 @@ fun InstalledModelItem(
             }
 
             AnimatedVisibility(visible = isExpanded) {
-                ModelExpandedDetails(model)
+                AiModelExpandedDetails(model)
             }
         }
     }

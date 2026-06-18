@@ -1,5 +1,7 @@
 package ai.nextgpu.agent.util;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -9,8 +11,8 @@ import java.nio.file.Path;
 import java.util.Scanner;
 import static org.junit.jupiter.api.Assertions.*;
 
-
 public class OCRUtilTest {
+    private static final Logger log = LoggerFactory.getLogger(OCRUtilTest.class);
 
     @TempDir
     Path tempDir;
@@ -40,7 +42,7 @@ public class OCRUtilTest {
     void testRapidOCR_Image1_WithExpectedText() throws Exception {
         File file = new File(getClass().getClassLoader().getResource("attachments/ocrimg1.jpg").getFile());
         String result = OCRUtil.imageRapidOCR(file);
-        System.out.println(result);
+        log.debug(result);
 
         assertNotNull(result, "RapidOCR result must not be null");
 
@@ -56,9 +58,9 @@ public class OCRUtilTest {
                 "able to smoke through Marlboro's exclusive Selectrate filter.";
 
         double similarity = computeSimilarity(result, expected);
-        System.out.printf("OCR similarity score: %.2f%%%n", similarity * 100);
-        System.out.printf(result);
-        System.out.printf( expected);
+        log.debug("OCR similarity score: {}%", similarity * 100);
+        log.debug(result);
+        log.debug(expected);
 
 
         assertTrue(similarity >= 0.70,
@@ -70,7 +72,7 @@ public class OCRUtilTest {
     void testRapidOCR_Image2_WithExpectedText() throws Exception {
         File file = new File(getClass().getClassLoader().getResource("attachments/ocrimg2.jpg").getFile());
         String result = OCRUtil.imageRapidOCR(file);
-        System.out.println(result);
+        log.debug(result);
 
         assertNotNull(result, "RapidOCR result must not be null");
 
@@ -111,9 +113,9 @@ public class OCRUtilTest {
                 "Miguel";
 
         double similarity = computeSimilarity(result, expected);
-        System.out.printf("OCR similarity score: %.2f%%%n", similarity * 100);
-        System.out.printf(result);
-        System.out.printf( expected);
+        log.debug("OCR similarity score: {}%", similarity * 100);
+        log.debug(result);
+        log.debug(expected);
 
 
         assertTrue(similarity >= 0.70,
@@ -125,7 +127,7 @@ public class OCRUtilTest {
     void testRapidOCR_Image3_WithExpectedText() throws Exception {
         File file = new File(getClass().getClassLoader().getResource("attachments/ocrimg3.jpg").getFile());
         String result = OCRUtil.imageRapidOCR(file);
-        System.out.println(result);
+        log.debug(result);
 
         assertNotNull(result, "RapidOCR result must not be null");
 
@@ -156,9 +158,9 @@ public class OCRUtilTest {
                 "su.doe";
 
         double similarity = computeSimilarity(result, expected);
-        System.out.printf("OCR similarity score: %.2f%%%n", similarity * 100);
-        System.out.printf(result);
-        System.out.printf( expected);
+        log.debug("OCR similarity score: {}%", similarity * 100);
+        log.debug(result);
+        log.debug(expected);
 
 
         assertTrue(similarity >= 0.70,
@@ -170,7 +172,7 @@ public class OCRUtilTest {
     void testRapidOCR_Image4_WithExpectedText() throws Exception {
         File file = new File(getClass().getClassLoader().getResource("attachments/ocrimg4.jpg").getFile());
         String result = OCRUtil.imageRapidOCR(file);
-        System.out.println(result);
+        log.debug(result);
 
         assertNotNull(result, "RapidOCR result must not be null");
 
@@ -247,9 +249,9 @@ public class OCRUtilTest {
                 "Incorporated in London Number 74974 Cables: Vehicular London SWI";
 
         double similarity = computeSimilarity(result, expected);
-        System.out.printf("OCR similarity score: %.2f%%%n", similarity * 100);
-        System.out.printf(result);
-        System.out.printf( expected);
+        log.debug("OCR similarity score: {}%", similarity * 100);
+        log.debug(result);
+        log.debug(expected);
 
 
         assertTrue(similarity >= 0.70,
@@ -261,7 +263,7 @@ public class OCRUtilTest {
     void testRapidOCR_Image5_WithExpectedText() throws Exception {
         File file = new File(getClass().getClassLoader().getResource("attachments/ocrimg5.jpg").getFile());
         String result = OCRUtil.imageRapidOCR(file);
-        System.out.println(result);
+        log.debug(result);
 
         assertNotNull(result, "RapidOCR result must not be null");
 
@@ -401,9 +403,9 @@ public class OCRUtilTest {
                 "than $300.000 ..";
 
         double similarity = computeSimilarity(result, expected);
-        System.out.printf("OCR similarity score: %.2f%%%n", similarity * 100);
-        System.out.printf(result);
-        System.out.printf( expected);
+        log.debug("OCR similarity score: {}%", similarity * 100);
+        log.debug(result);
+        log.debug(expected);
 
 
         assertTrue(similarity >= 0.70,
@@ -419,7 +421,7 @@ public class OCRUtilTest {
 
         assertNotNull(result, "RapidOCR result must not be null");
         assertTrue(result.contains("If the path be beautiful"));
-        System.out.println("RapidOCR test.png result: " + result);
+        log.debug("RapidOCR test.png result: {}", result);
     }
 
     @Test
@@ -428,7 +430,7 @@ public class OCRUtilTest {
         File file = new File(getClass().getClassLoader().getResource("attachments/ocrimg8.jpg").getFile());
 
         String result = OCRUtil.imageRapidOCR(file);
-        System.out.println("RapidOCR 10_test.jpg result: " + result);
+        log.debug("RapidOCR 10_test.jpg result: {}", result);
 
         assertNotNull(result, "RapidOCR result must not be null");
         assertTrue(result.contains("Everyone has threelives:"));

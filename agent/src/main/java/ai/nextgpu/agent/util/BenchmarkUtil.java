@@ -4,7 +4,8 @@ import ai.nextgpu.agent.config.GlobalPropertyConfig;
 import ai.nextgpu.agent.service.NextGpuAgentService;
 import ai.nextgpu.agent.service.NextGpuAiService;
 import ai.nextgpu.common.model.GlobalProperty;
-import lombok.extern.slf4j.Slf4j;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -28,9 +29,9 @@ import java.util.regex.Pattern;
  * checks to evaluate CPU capability. This computation is encapsulated in a task
  * executed asynchronously and with timeout handling.
  */
-@Slf4j
 @Component
 public class BenchmarkUtil {
+    private static final Logger log = LoggerFactory.getLogger(BenchmarkUtil.class);
 
     @Autowired
     NextGpuAgentService agentService;
@@ -297,7 +298,7 @@ public class BenchmarkUtil {
             }
             long durationNs = System.nanoTime() - start;
             double throughputMBps = BUFFER_SIZE / (durationNs / 1e9) / (1024 * 1024);
-            System.out.printf("Run %d - Write Speed: %.2f MB/s%n", run + 1, throughputMBps);
+            log.info("Run {} - Write Speed: {} MB/s", run + 1, String.format("%.2f", throughputMBps));
             scores.put("write", (int) throughputMBps);
 
             // Detect read speed
@@ -308,7 +309,7 @@ public class BenchmarkUtil {
             }
             durationNs = System.nanoTime() - start;
             throughputMBps = BUFFER_SIZE / (durationNs / 1e9) / (1024 * 1024);
-            System.out.printf("Run %d - Read Speed: %.2f MB/s | Checksum: %d%n", run + 1, throughputMBps, sum);
+            log.info("Run {} - Read Speed: {} MB/s | Checksum: {}", run + 1, String.format("%.2f", throughputMBps), sum);
             scores.put("read", (int) throughputMBps);
 
             // Detect memory latency
@@ -320,7 +321,7 @@ public class BenchmarkUtil {
             }
             durationNs = System.nanoTime() - start;
             double avgLatencyNs = (double) durationNs / steps;
-            System.out.printf("Run %d - Approx. Memory Latency: %.2f ns per access%n", run + 1, avgLatencyNs);
+            log.info("Run {} - Approx. Memory Latency: {} ns per access", run + 1, String.format("%.2f", avgLatencyNs));
             scores.put("latency", (int) avgLatencyNs);
 
             allResults.add(scores);

@@ -27,7 +27,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import ai.nextgpu.agent.model.PromptModel
-import ai.nextgpu.agent.ui.component.common.CustomButton
+import ai.nextgpu.agent.ui.component.CustomButton
 import ai.nextgpu.agent.ui.theme.*
 
 @Composable

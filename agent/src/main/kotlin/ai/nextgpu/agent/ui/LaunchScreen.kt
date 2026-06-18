@@ -1,5 +1,6 @@
 package ai.nextgpu.agent.ui
 
+import ai.nextgpu.agent.ui.component.CustomButton
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -11,7 +12,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import ai.nextgpu.agent.ui.component.common.CustomButton
 import ai.nextgpu.agent.ui.theme.*
 import androidx.compose.ui.text.style.TextAlign
 
@@ -29,7 +29,7 @@ fun LaunchScreen(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
-            // 1. Logo
+            // Logo
             val logoResource = if (NextGpuTheme.colors.isDark) {
                 "images/nextgpu-secondary-logo-full.svg"
             } else {
@@ -43,7 +43,7 @@ fun LaunchScreen(
                     .padding(bottom = SpacingExtraLarge)
             )
 
-            // 2. Main Title
+            // Main Title
             Text(
                 text = "Let’s launch NextGPU",
                 style = MaterialTheme.typography.h2.copy(fontWeight = FontWeight.Bold),
@@ -51,7 +51,7 @@ fun LaunchScreen(
                 modifier = Modifier.padding(bottom = SpacingMedium)
             )
 
-            // 3. Subtitle Placeholder
+            // Subtitle Placeholder
             Text(
                 text = "You can now run fully private AI models on your machine, locally and securely.\n" +
                         "The era of sovereign AI begins with the button below.",
@@ -63,7 +63,7 @@ fun LaunchScreen(
                     .padding(bottom = SpacingLarge) // Large gap before the button
             )
 
-            // 4. Wide Launch Button
+            // Wide Launch Button
             CustomButton(
                 text = "Launch NextGPU",
                 onClick = onProceed,

@@ -82,7 +82,7 @@ fun SuggestionCard(
         elevation = ElevationNone,
         modifier = Modifier
             .clip(pillShape)
-            // 2. Use the hoisted interaction source for the container logic
+            // Use the hoisted interaction source for the container logic
             .hoverable(interactionSource)
             .background(
                 color = if (isHovered) NextGpuTheme.colors.hoverBackground else Color.Transparent,
@@ -110,7 +110,7 @@ fun SuggestionCard(
             Icon(
                 painter = painterResource("icons/$icon.svg"),
                 contentDescription = icon,
-                // 3. Use the SAME hoisted 'isHovered' state
+                // Use the SAME hoisted 'isHovered' state
                 tint = if (isHovered) NextGpuTheme.colors.textPrimary else NextGpuTheme.colors.textSecondary,
                 modifier = Modifier.size(IconSizeMedium)
             )
@@ -119,7 +119,7 @@ fun SuggestionCard(
 
             Text(
                 text = text,
-                // 3. Use the SAME hoisted 'isHovered' state
+                // Use the SAME hoisted 'isHovered' state
                 color = if (isHovered) NextGpuTheme.colors.textPrimary else NextGpuTheme.colors.textSecondary,
                 style = MaterialTheme.typography.button,
             )

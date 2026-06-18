@@ -15,7 +15,8 @@ import ai.nextgpu.common.model.*;
 import ai.nextgpu.common.report.BenchmarkReport;
 import ai.nextgpu.common.report.HardwareReport;
 import ai.nextgpu.common.repository.BaseComponentRepository;
-import lombok.extern.slf4j.Slf4j;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -27,9 +28,10 @@ import java.util.*;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
-@Slf4j
 @Service
 public class ComputerService {
+
+    private static final Logger log = LoggerFactory.getLogger(ComputerService.class);
 
     @Value("${nextgpu.web.baseUrl:http://localhost:8080}")
     private String BASE_URL;

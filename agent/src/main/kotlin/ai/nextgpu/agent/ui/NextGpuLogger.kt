@@ -24,6 +24,7 @@ import androidx.compose.ui.text.font.FontWeight.Companion.SemiBold
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.withStyle
 import ai.nextgpu.agent.ui.theme.*
+import org.slf4j.LoggerFactory
 import java.io.File
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
@@ -96,9 +97,15 @@ fun buildFormattedLogText(logs: List<LogEntry>): AnnotatedString {
 }
 
 // Helper function to use the logger anywhere in the app
+private val logger = LoggerFactory.getLogger("ai.nextgpu.agent.ui.NextGpuLogger")
+
 fun logActivity(message: String, type: LogType = LogType.INFO) {
     NextGpuLogger.log(message, type)
-    print("[${LocalDateTime.now().format(DateTimeFormatter.ofPattern("HH:mm:ss"))}] [$type] $message\n")
+    when (type) {
+        LogType.INFO -> logger.info(message)
+        LogType.WARNING -> logger.warn(message)
+        LogType.ERROR -> logger.error(message)
+    }
 }
 
 /**

@@ -1,5 +1,6 @@
 package ai.nextgpu.agent.ui.component.hub.sidebar
 
+import ai.nextgpu.agent.ui.component.CustomButton
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
@@ -21,7 +22,6 @@ import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.window.Dialog
-import ai.nextgpu.agent.ui.component.common.CustomButton
 import ai.nextgpu.agent.ui.theme.*
 
 @Composable
@@ -46,12 +46,12 @@ fun RenameDialog(
     // Convenience variable to keep the rest of the logic clean
     val nameText = nameValue.text
 
-    // 1. Create Focus Requesters
+    // Create Focus Requesters
     val nameFocusRequester = remember { FocusRequester() }
     val cancelFocusRequester = remember { FocusRequester() }
     val confirmFocusRequester = remember { FocusRequester() }
 
-    // 2. Request focus on the Text Field when dialog opens
+    // Request focus on the Text Field when dialog opens
     LaunchedEffect(Unit) {
         nameFocusRequester.requestFocus()
     }

@@ -13,7 +13,8 @@ import ai.nextgpu.common.report.*;
 import ai.nextgpu.common.util.JsonUtil;
 import ai.nextgpu.common.util.StringUtil;
 import lombok.Getter;
-import lombok.extern.slf4j.Slf4j;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -36,10 +37,11 @@ import java.util.*;
  * for GPU-related functionalities and provides methods for managing global properties, user authentication,
  * WebSocket communication, hardware detection, and resource recommendations.
  */
-@Slf4j
 @Getter
 @Service
 public class NextGpuAgentService {
+
+    private static final Logger log = LoggerFactory.getLogger(NextGpuAgentService.class);
 
     private boolean isLoggedIn = false;
 

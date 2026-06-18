@@ -4,7 +4,8 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import ai.nextgpu.agent.util.HttpUtil;
 import ai.nextgpu.common.dto.*;
 import ai.nextgpu.common.util.JsonUtil;
-import lombok.extern.slf4j.Slf4j;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
@@ -17,9 +18,10 @@ import java.util.Objects;
 /**
  * Service for interacting with NextGPU web API endpoints
  */
-@Slf4j
 @Component
 public class NextGpuWebService {
+
+    private static final Logger log = LoggerFactory.getLogger(NextGpuWebService.class);
 
     @Value("${nextgpu.web.baseUrl:http://localhost:8080}")
     private String BASE_URL;

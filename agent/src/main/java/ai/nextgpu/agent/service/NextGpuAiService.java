@@ -35,7 +35,8 @@ import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestTemplate;
 
 import lombok.*;
-import lombok.extern.slf4j.Slf4j;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.nio.file.StandardCopyOption;
 import java.util.*;
@@ -59,10 +60,11 @@ import java.util.stream.Collectors;
  * It provides functionalities for generating responses, managing chat conversations,
  * and handling model lifecycle operations such as listing and pulling models.
  */
-@Slf4j
 @Getter
 @Service
 public class NextGpuAiService {
+
+    private static final Logger log = LoggerFactory.getLogger(NextGpuAiService.class);
 
     //    @Autowired
     private final NextGpuWebService nextGpuWebService;
@@ -239,7 +241,7 @@ public class NextGpuAiService {
      */
     public List<PromptModel> listDownloadedModels() {
         List<PromptModel> allModels = new ArrayList<>();
-        // 1. Get Ollama models
+        // Get Ollama models
         try {
             ResponseEntity<JsonNode> response = restTemplate.getForEntity(ollamaUrl + "/api/tags", JsonNode.class);
 
@@ -258,7 +260,7 @@ public class NextGpuAiService {
             log.error("Exception listing Ollama models", e);
         }
 
-        // 2. Get ComfyUI models
+        // Get ComfyUI models
         try {
             List<AiModelDto> comfyModels = getComfyUIModels();
             if (comfyModels != null && !comfyModels.isEmpty()) {
@@ -455,7 +457,7 @@ public class NextGpuAiService {
     }
 
     public boolean deleteOllamaModel(String modelName) {
-        // Preserves existing behaviour (e.g. hard-stop) — still wipes partials.
+        // Preserves existing behaviour (e.g. hard-stop) still wipes partials.
         return deleteOllamaModel(modelName, true);
     }
 
@@ -582,7 +584,7 @@ public class NextGpuAiService {
                     return false;
                 }
                 log.error("Failed file {} for model {}", file.getFileName(), model.getModel());
-                deleteComfyUiModel(model); // genuine failure — remove partials
+                deleteComfyUiModel(model); // genuine failure remove partials
                 return false;
             }
         }
@@ -643,7 +645,7 @@ public class NextGpuAiService {
 
                     String trimmed = line.trim();
 
-                    // ✅ CURL PROGRESS PARSE (THIS IS THE FIX)
+                    // CURL PROGRESS PARSE (THIS IS THE FIX)
                     if (trimmed.contains("%")) {
                         try {
                             String percent = trimmed.split("%")[0].replaceAll("[^0-9.]", "");
@@ -696,7 +698,7 @@ public class NextGpuAiService {
 
             final long existing = Files.exists(partPath) ? Files.size(partPath) : 0L;
 
-            // NOTE: do NOT delete partPath when !completed — it's needed to resume.
+            // NOTE: do NOT delete partPath when !completed it's needed to resume.
             return Boolean.TRUE.equals(longRunningRestTemplate.execute(
                     downloadUrl, HttpMethod.GET,
                     req -> { if (existing > 0) req.getHeaders().set(HttpHeaders.RANGE, "bytes=" + existing + "-"); },
@@ -706,7 +708,7 @@ public class NextGpuAiService {
                         long remaining = response.getHeaders().getContentLength();
                         long totalSize = append ? startFrom + remaining : remaining;
 
-                        if (!append) Files.deleteIfExists(partPath); // server ignored Range → clean restart
+                        if (!append) Files.deleteIfExists(partPath); // server ignored Range -> clean restart
 
                         boolean cancelled = false;
                         try (InputStream is = response.getBody();

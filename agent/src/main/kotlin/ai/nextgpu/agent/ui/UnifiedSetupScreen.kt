@@ -28,7 +28,6 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -36,7 +35,7 @@ import androidx.compose.ui.window.Dialog
 import ai.nextgpu.agent.config.GlobalPropertyConfig
 import ai.nextgpu.agent.service.NextGpuAgentService
 import ai.nextgpu.agent.springContext
-import ai.nextgpu.agent.ui.component.common.CustomButton
+import ai.nextgpu.agent.ui.component.CustomButton
 import ai.nextgpu.agent.ui.component.hub.sidebar.CustomRoundedCheckbox
 import ai.nextgpu.agent.ui.theme.*
 import ai.nextgpu.agent.util.BenchmarkUtil
@@ -51,8 +50,10 @@ import java.io.File
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 import androidx.compose.ui.text.TextLayoutResult
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.zIndex
+import org.slf4j.LoggerFactory
+
+private val logger = LoggerFactory.getLogger("ai.nextgpu.agent.ui.UnifiedSetupScreen")
 
 @OptIn(ExperimentalMaterialApi::class)
 enum class SetupPhase { OVERVIEW, INSTALLING, HARDWARE_SCAN, DONE }
@@ -154,7 +155,7 @@ fun UnifiedSetupScreen(
         val desc = stepDescriptions[key] ?: key
         val finalMsg = logDetail ?: desc
         setupLogs += "\n> $finalMsg"
-        println("SETUP LOG: $finalMsg")
+        logger.info("SETUP LOG: {}", finalMsg)
     }
 
     // --- EFFECTS ---
@@ -164,7 +165,7 @@ fun UnifiedSetupScreen(
         }
     }
 
-    // 1. UPDATED: Bulletproof installation tracking loop
+    // UPDATED: Bulletproof installation tracking loop
     LaunchedEffect(isInstalling) {
         if (isInstalling) {
             rawLogs = OSUtil.getInstallLogs()
@@ -195,7 +196,7 @@ fun UnifiedSetupScreen(
         }
     }
 
-    // 2. NEW: Bulletproof Auto-Transition Safety Net
+    // NEW: Bulletproof Auto-Transition Safety Net
     // If the phase gets stuck on installing, but the installation is complete, force it to move forward.
     LaunchedEffect(currentPhase, isInstallCompleted, isInstalling) {
         if (currentPhase == SetupPhase.INSTALLING && isInstallCompleted && !isInstalling) {
@@ -302,7 +303,7 @@ fun UnifiedSetupScreen(
                     }
                 }
             } catch (e: Exception) {
-                e.printStackTrace()
+                logger.error("Unified setup workflow failed at step {}", currentSetupStepKey, e)
                 appendSetupLog(currentSetupStepKey, "Error: ${e.message}")
                 withContext(Dispatchers.Main) { isSetupRunning = false }
             }
@@ -318,7 +319,7 @@ fun UnifiedSetupScreen(
     val annotatedString = buildAnnotatedString {
         append("Your data stays on your device only. Private, secure and fully under your control.\n")
 
-        // 1. Attach a tag and the URL payload to the upcoming text
+        // Attach a tag and the URL payload to the upcoming text
         pushStringAnnotation(
             tag = "privacy_link",
             annotation = "https://nextgpu.ai/privacy-policy/"
@@ -328,7 +329,7 @@ fun UnifiedSetupScreen(
             append("Click here to learn more")
         }
 
-        // 2. Pop the annotation so it doesn't apply to the rest of the text
+        // Pop the annotation so it doesn't apply to the rest of the text
         pop()
 
         append(" about NextGPU's commitment to privacy and security.")
@@ -631,7 +632,7 @@ fun UnifiedSetupScreen(
                     }
                 }
 
-                // 3. UPDATED: Dynamic Button text and enabled logic safely handles paused/completed states
+                // UPDATED: Dynamic Button text and enabled logic safely handles paused/completed states
                 val buttonText = when (currentPhase) {
                     SetupPhase.OVERVIEW -> "Get started ->"
                     SetupPhase.INSTALLING -> when {
@@ -721,9 +722,9 @@ fun UnifiedSetupScreen(
                             lineHeight = 16.sp
                         ),
                         modifier = Modifier
-                            // 2. Dynamically change the cursor based on the state
+                            // Dynamically change the cursor based on the state
                             .pointerHoverIcon(if (isHoveringLink) PointerIcon.Hand else PointerIcon.Default)
-                            // 3. Track the mouse movement across the text block
+                            // Track the mouse movement across the text block
                             .pointerInput(Unit) {
                                 awaitPointerEventScope {
                                     while (true) {
@@ -748,11 +749,11 @@ fun UnifiedSetupScreen(
                                 }
                             },
                         onTextLayout = { result ->
-                            // 4. Save the layout result so we can map coordinates to text offsets
+                            // Save the layout result so we can map coordinates to text offsets
                             layoutResult = result
                         },
                         onClick = { offset ->
-                            // 5. Your existing click logic
+                            // Your existing click logic
                             annotatedString.getStringAnnotations(tag = "privacy_link", start = offset, end = offset)
                                 .firstOrNull()?.let { annotation ->
                                     uriHandler.openUri(annotation.item)

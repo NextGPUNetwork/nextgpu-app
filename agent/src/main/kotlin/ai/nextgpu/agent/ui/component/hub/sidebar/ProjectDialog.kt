@@ -1,5 +1,6 @@
 package ai.nextgpu.agent.ui.component.hub.sidebar
 
+import ai.nextgpu.agent.ui.component.CustomButton
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
@@ -21,7 +22,6 @@ import androidx.compose.ui.input.key.*
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
-import ai.nextgpu.agent.ui.component.common.CustomButton
 import ai.nextgpu.agent.ui.theme.*
 
 /**
@@ -38,13 +38,13 @@ fun ProjectDialog(
     onDismiss: () -> Unit,
     onConfirm: () -> Unit
 ) {
-    // 1. Create Focus Requesters for explicit navigation
+    // Create Focus Requesters for explicit navigation
     val nameFocusRequester = remember { FocusRequester() }
     val instructionsFocusRequester = remember { FocusRequester() }
     val cancelFocusRequester = remember { FocusRequester() }
     val confirmFocusRequester = remember { FocusRequester() }
 
-    // 2. Request focus on the Name field as soon as the dialog opens
+    // Request focus on the Name field as soon as the dialog opens
     LaunchedEffect(Unit) {
         nameFocusRequester.requestFocus()
     }

@@ -4,7 +4,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import ai.nextgpu.common.dto.WebSocketMessageDto;
 import lombok.Getter;
 import lombok.Setter;
-import lombok.extern.slf4j.Slf4j;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.messaging.converter.MappingJackson2MessageConverter;
 import org.springframework.messaging.simp.stomp.StompHeaders;
 import org.springframework.messaging.simp.stomp.StompSession;
@@ -19,10 +20,11 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ExecutionException;
 
-@Slf4j
 @Getter
 @Setter
 public class WebSocketStompClient {
+
+    private static final Logger log = LoggerFactory.getLogger(WebSocketStompClient.class);
 
     StompSession session;
 

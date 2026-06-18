@@ -18,7 +18,7 @@ enum class AppThemeMode {
 }
 
 // ==========================================
-// 1. PRIMITIVES (Your existing definitions)
+// PRIMITIVES (Your existing definitions)
 // ==========================================
 
 // Modern color palette
@@ -201,7 +201,7 @@ val NextGpuTypography = Typography(
 )
 
 // ==========================================
-// 2. EXTENSIBLE COLOR SYSTEM
+// EXTENSIBLE COLOR SYSTEM
 // ==========================================
 
 /**
@@ -274,7 +274,7 @@ val LocalNextGpuColors = staticCompositionLocalOf {
 }
 
 // ==========================================
-// 3. THEME ENTRY POINT
+// THEME ENTRY POINT
 // ==========================================
 
 @Composable
@@ -282,10 +282,10 @@ fun NextGpuTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
     content: @Composable () -> Unit
 ) {
-    // 1. Determine which color set to use
+    // Determine which color set to use
     val colors = if (darkTheme) DarkNextGpuColors else LightNextGpuColors
 
-    // 2. Bridge to Material Colors
+    // Bridge to Material Colors
     // This maps our custom colors to Material slots so standard components (Buttons, etc.) still work.
     val materialColors = if (darkTheme) {
         darkColors(
@@ -317,7 +317,7 @@ fun NextGpuTheme(
         )
     }
 
-    // 3. Provide the custom colors via CompositionLocal
+    // Provide the custom colors via CompositionLocal
     CompositionLocalProvider(
         LocalNextGpuColors provides colors
     ) {

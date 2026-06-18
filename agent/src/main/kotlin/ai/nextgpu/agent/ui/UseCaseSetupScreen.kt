@@ -14,7 +14,7 @@ import ai.nextgpu.agent.config.GlobalPropertyConfig
 import ai.nextgpu.agent.service.NextGpuAgentService
 import ai.nextgpu.agent.service.NextGpuAiService
 import ai.nextgpu.agent.springContext
-import ai.nextgpu.agent.ui.component.common.CustomButton
+import ai.nextgpu.agent.ui.component.CustomButton
 import ai.nextgpu.agent.ui.theme.*
 import ai.nextgpu.agent.util.HardwareUtil
 import kotlinx.coroutines.*

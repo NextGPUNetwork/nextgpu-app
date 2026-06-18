@@ -1,5 +1,7 @@
 package ai.nextgpu.agent.util;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.junit.jupiter.api.Test;
 import ai.nextgpu.agent.service.BaseTest;
 import ai.nextgpu.agent.service.NextGpuAiService;
@@ -15,6 +17,7 @@ import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.when;
 
 class BenchmarkUtilTest extends BaseTest {
+    private static final Logger log = LoggerFactory.getLogger(BenchmarkUtilTest.class);
     
     @Autowired
     private NextGpuAiService aiService;
@@ -32,9 +35,9 @@ class BenchmarkUtilTest extends BaseTest {
         int readSpeed = (int) scores.get("read");
         int latency = (int) scores.get("latency");
 
-        System.out.println("Write speed: " + writeSpeed);
-        System.out.println("Read speed: " + readSpeed);
-        System.out.println("Latency: " + latency);
+        log.debug("Write speed: {}", writeSpeed);
+        log.debug("Read speed: {}", readSpeed);
+        log.debug("Latency: {}", latency);
 
         // Check plausible ranges for the results
         assertTrue(writeSpeed > 0, "Write speed must be positive");
@@ -48,7 +51,7 @@ class BenchmarkUtilTest extends BaseTest {
 
         assertNotNull(scores, "Scores should not be null");
         if (!scores.containsKey("read_bandwidth_mb") || (int) scores.get("read_bandwidth_mb") == -1) {
-            System.out.println("Benchmark storage returned no metrics or failed (likely due to missing environment)");
+            log.debug("Benchmark storage returned no metrics or failed (likely due to missing environment)");
             return;
         }
         assertTrue(scores.containsKey("read_bandwidth_mb"), "Read bandwidth score is missing");
@@ -60,7 +63,7 @@ class BenchmarkUtilTest extends BaseTest {
         assertTrue(scores.containsKey("total_runtime_ms"), "Total runtime score is missing");
 
         for (Map.Entry<String, Object> entry : scores.entrySet()) {
-            System.out.println(entry.getKey() + ": " + entry.getValue());
+            log.debug("{}: {}", entry.getKey(), entry.getValue());
             assertTrue((int) entry.getValue() >= 0, entry.getKey() + " should not have a negative value");
         }
     }
@@ -72,7 +75,7 @@ class BenchmarkUtilTest extends BaseTest {
         assertNotNull(cpuResults, "CPU results map should not be null");
 
         if (cpuResults.isEmpty() || !cpuResults.containsKey("singlecore_events_per_second")) {
-            System.out.println("Benchmark CPU returned no metrics (likely due to missing environment)");
+            log.debug("Benchmark CPU returned no metrics (likely due to missing environment)");
             return;
         }
 

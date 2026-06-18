@@ -1,4 +1,4 @@
-package ai.nextgpu.agent.ui.component.common
+package ai.nextgpu.agent.ui.component
 
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
@@ -18,7 +18,6 @@ import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
-import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import ai.nextgpu.agent.ui.theme.*
 import androidx.compose.runtime.getValue
@@ -91,7 +90,7 @@ fun CustomButton(
             .pointerHoverIcon(if (enabled) PointerIcon.Hand else PointerIcon.Default)
             .clickable(
                 interactionSource = interactionSource,
-                indication = null, // THIS kills the default glass/ripple effect entirely!
+                indication = null, // THIS kills the default glass/ripple effect
                 enabled = enabled,
                 onClick = onClick
             ),

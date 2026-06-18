@@ -4,13 +4,15 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import jakarta.persistence.AttributeConverter;
 import jakarta.persistence.Converter;
-import lombok.extern.slf4j.Slf4j;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.Map;
 
 @Converter
-@Slf4j
 public class MapAttributeConverter implements AttributeConverter<Map<String, Object>, String> {
+
+    private static final Logger log = LoggerFactory.getLogger(MapAttributeConverter.class);
 
     @Override
     public String convertToDatabaseColumn(Map map) {

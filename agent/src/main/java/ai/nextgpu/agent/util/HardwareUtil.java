@@ -3,7 +3,8 @@ package ai.nextgpu.agent.util;
 import ai.nextgpu.agent.aop.Loggable;
 import ai.nextgpu.agent.service.NextGpuAgentService;
 import ai.nextgpu.common.model.*;
-import lombok.extern.slf4j.Slf4j;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.apache.commons.csv.CSVFormat;
 import org.apache.commons.csv.CSVParser;
 import org.apache.commons.csv.CSVRecord;
@@ -34,9 +35,10 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * Utility class for detecting and retrieving hardware details.
  * This class uses the OSHI library for low-level hardware queries and integrates with AIService to fetch additional specifications.
  */
-@Slf4j
 @Component
 public class HardwareUtil {
+
+    private static final Logger log = LoggerFactory.getLogger(HardwareUtil.class);
 
     // Executor pool is fixed to 2 threads, as it will be used in deep cleaning
     private static final ExecutorService executorService = Executors.newFixedThreadPool(2);

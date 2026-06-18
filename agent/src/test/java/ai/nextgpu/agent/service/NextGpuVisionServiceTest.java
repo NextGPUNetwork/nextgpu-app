@@ -1,5 +1,7 @@
 package ai.nextgpu.agent.service;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import ai.nextgpu.agent.repository.GlobalPropertyRepository;
 import org.junit.jupiter.api.Disabled;
@@ -16,6 +18,7 @@ import static org.mockito.Mockito.mock;
 
 @SpringBootTest(classes = NextGpuVisionServiceTest.TestConfig.class, properties = "comfy.api.url=localhost:8188")
 public class NextGpuVisionServiceTest {
+    private static final Logger log = LoggerFactory.getLogger(NextGpuVisionServiceTest.class);
 
     @Autowired
     private NextGpuVisionService nextGpuVisionService;
@@ -61,6 +64,6 @@ public class NextGpuVisionServiceTest {
             fail("Failed to generate image. Ensure ComfyUI is running and required models are downloaded: " + e.getMessage());
         }
         // assertNotNull(filename, "Image filename should be returned. Check logs for details (it might be a model availability issue).");
-        System.out.println("Generated image filename: " + filename);
+        log.info("Generated image filename: {}", filename);
     }
 }

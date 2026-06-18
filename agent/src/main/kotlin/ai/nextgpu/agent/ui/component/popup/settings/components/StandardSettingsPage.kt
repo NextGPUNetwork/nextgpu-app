@@ -1,5 +1,6 @@
 package ai.nextgpu.agent.ui.component.popup.settings.components
 
+import ai.nextgpu.agent.ui.component.CustomButton
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.Divider
 import androidx.compose.material.MaterialTheme
@@ -7,9 +8,7 @@ import androidx.compose.material.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import ai.nextgpu.agent.ui.component.common.CustomButton
 import ai.nextgpu.agent.ui.component.popup.settings.model.SettingItemModel
 import ai.nextgpu.agent.ui.component.popup.settings.model.SettingsSectionModel
 import ai.nextgpu.agent.ui.theme.ErrorText

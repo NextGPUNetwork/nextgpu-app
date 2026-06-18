@@ -4,7 +4,8 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import ai.nextgpu.agent.aop.Loggable;
 import ai.nextgpu.agent.service.NextGpuAiService;
-import lombok.extern.slf4j.Slf4j;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.jetbrains.annotations.NotNull;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.stereotype.Component;
@@ -20,9 +21,10 @@ import java.nio.file.StandardCopyOption;
 import java.util.List;
 import java.util.UUID;
 
-@Slf4j
 @Component
 public class OSUtil {
+
+    private static final Logger log = LoggerFactory.getLogger(OSUtil.class);
 
     public static final String OS_NAME;
 
@@ -166,7 +168,7 @@ public class OSUtil {
      *
      * @param command the shell command to execute
      * @return the output of the executed command as a String, or null if the operating system is unsupported
-     * @throws IOException if an I/O error occurs while executing the command
+     * @throws IOException          if an I/O error occurs while executing the command
      * @throws InterruptedException if the current thread is interrupted while waiting for the command to complete
      */
     public static String executeCommand(String command) throws IOException, InterruptedException {
@@ -179,14 +181,73 @@ public class OSUtil {
             return executeCommands(commands);
         }
         if (IS_LINUX || IS_MACOS) {
-            String[] commands = {
-                    "/bin/sh",
-                    "-c",
-                    command
-            };
+            String[] commands = {"/bin/sh", "-c", command};
             return executeCommands(commands);
         }
         return null;
+    }
+
+    /**
+     * Checks if WSL2 (Microsoft-Windows-Subsystem-Linux) is enabled.
+     *
+     * @return true if enabled, false otherwise.
+     */
+    public static boolean isWslEnabled() {
+        try {
+            // Run your exact command
+            String[] commands = {"wsl.exe", "--status"};
+
+            String output = executeCommands(commands);
+
+            // If the output tells the user to "enable" it, then it is currently DISABLED.
+            return !output.contains("Please enable") && !output.contains("optional component to use WSL");
+        } catch (Exception e) {
+            // Fallback: If wsl.exe doesn't exist at all, it throws an exception, meaning it's disabled.
+            return false;
+        }
+    }
+
+    /**
+     * Enables WSL2. Requires Administrator privileges.
+     */
+    public static boolean enableWsl() {
+        try {
+            String[] commands = {
+                    "powershell.exe",
+                    "-Command",
+                    "Start-Process powershell -Verb RunAs -Wait -ArgumentList 'Enable-WindowsOptionalFeature -Online -FeatureName Microsoft-Windows-Subsystem-Linux -NoRestart'"
+            };
+            executeCommands(commands);
+            return true;
+        } catch (Exception e) {
+            System.err.println("Error enabling WSL: " + e.getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * Restarts the Windows operating system after a short delay.
+     *
+     * @return true if the restart command was successfully issued.
+     */
+    public static boolean restartSystem() {
+        try {
+            System.out.println("Scheduling a system restart in 60 seconds...");
+
+            // /r = restart
+            // /t 60 = time delay of 60 seconds
+            // /c = custom comment displayed to the user
+            String[] commands = {
+                    "shutdown.exe",
+                    "/r", "/t", "60", "/c",
+                    "WSL2 installation requires a system restart. Saving your work is highly recommended. Open NextGPU after the restart to continue installation."
+            };
+            executeCommands(commands);
+            return true;
+        } catch (Exception e) {
+            System.err.println("Failed to issue restart command: " + e.getMessage());
+            return false;
+        }
     }
 
     /**
@@ -195,7 +256,7 @@ public class OSUtil {
      *
      * @param command an array of strings representing the command and its arguments to be executed
      * @return the output of the executed command as a String
-     * @throws IOException if an I/O error occurs when creating the process or reading its output
+     * @throws IOException          if an I/O error occurs when creating the process or reading its output
      * @throws InterruptedException if the current thread is interrupted while waiting for the process to complete
      */
     @Loggable
@@ -212,7 +273,7 @@ public class OSUtil {
      * If the script fails with a non-zero exit code, an {@link IOException} is thrown.
      *
      * @param scriptPath the absolute or relative path to the PowerShell script file to be executed
-     * @throws IOException if an I/O error occurs, or the script execution fails with a non-zero exit code
+     * @throws IOException          if an I/O error occurs, or the script execution fails with a non-zero exit code
      * @throws InterruptedException if the thread executing the script is interrupted while waiting for the process to complete
      */
     private static void executeWindowsScript(String scriptPath) throws IOException, InterruptedException {
@@ -242,7 +303,7 @@ public class OSUtil {
      * The script will be executed with "sudo" privileges and using the shell interpreter.
      *
      * @param scriptPath the full path to the Linux shell script to be executed
-     * @throws IOException if an I/O error occurs during the script execution process
+     * @throws IOException          if an I/O error occurs during the script execution process
      * @throws InterruptedException if the current thread is interrupted while waiting for the process to complete
      */
     public static void executeLinuxScript(String scriptPath) throws IOException, InterruptedException {
@@ -286,13 +347,13 @@ public class OSUtil {
             return;
         }
 
-        // 1. Guarantee credentials exist before script runs
+        // Guarantee credentials exist before script runs
         if (!hasInstallCredentials()) {
             throw new FileNotFoundException("wsl_credentials.txt not found. Credentials must be provided before installation.");
         }
         prepareInstallCredentials();
 
-        // 2. Extract the PS1 script from the Spring Boot JAR to the OS Temp directory
+        // Extract the PS1 script from the Spring Boot JAR to the OS Temp directory
         String tmpDir = System.getProperty("java.io.tmpdir");
         Path tempScriptPath = Paths.get(tmpDir, "install_prerequisites.ps1");
 
@@ -305,7 +366,7 @@ public class OSUtil {
             throw new FileNotFoundException("Cannot find or extract installation script from classpath (resources/scripts/install_prerequisites.ps1).");
         }
 
-        // 3. Construct the async, elevated, hidden PowerShell command pointing to the Temp directory
+        // Construct the async, elevated, hidden PowerShell command pointing to the Temp directory
         String args = "-ExecutionPolicy Bypass -File \\\"" + tempScriptPath.toString() + "\\\"";
         if (overwriteExisting) {
             args += " -OverwriteExistingWsl";
@@ -315,7 +376,7 @@ public class OSUtil {
 
         log.info("Starting background installation: {}", psCommand);
 
-        // 4. Start the process and immediately return (do not use .waitFor())
+        // Start the process and immediately return (do not use .waitFor())
         new ProcessBuilder("powershell.exe", "-NoProfile", "-Command", psCommand).start();
     }
 
@@ -351,7 +412,7 @@ public class OSUtil {
      * a command within the specified WSL distribution, verifying if the credentials
      * are valid.
      *
-     * @param distro The name of the WSL distribution to authenticate against.
+     * @param distro   The name of the WSL distribution to authenticate against.
      * @param username The username to authenticate within the specified WSL distribution.
      * @param password The password associated with the provided username.
      * @return true if authentication is successful, false otherwise.
@@ -392,9 +453,9 @@ public class OSUtil {
      * (if necessary) as input to the process. The command executes in the context of the specified Linux user
      * within the given WSL distribution.
      *
-     * @param command the command to be executed within WSL
-     * @param distro the name of the WSL distribution where the command will be executed
-     * @param username the username under which the command will be executed
+     * @param command      the command to be executed within WSL
+     * @param distro       the name of the WSL distribution where the command will be executed
+     * @param username     the username under which the command will be executed
      * @param sudoPassword the password for the user, used for commands requiring sudo privileges
      * @return the standard output of the executed command as a string
      * @throws IOException if an I/O error occurs during the process creation or communication
@@ -427,11 +488,11 @@ public class OSUtil {
      * and under a given user. The method constructs and runs the command using the WSL environment.
      * The command output is captured and returned as a string.
      *
-     * @param command the command to be executed in the WSL environment
-     * @param distro the name of the WSL distribution where the command will be executed
+     * @param command  the command to be executed in the WSL environment
+     * @param distro   the name of the WSL distribution where the command will be executed
      * @param username the username under which the command will be executed
      * @return the standard output of the executed command as a string
-     * @throws IOException if an I/O error occurs during the process creation or during command execution
+     * @throws IOException          if an I/O error occurs during the process creation or during command execution
      * @throws InterruptedException if the current thread is interrupted while waiting for the command to complete
      */
     @Loggable
@@ -457,7 +518,7 @@ public class OSUtil {
      *
      * @param process the {@link Process} instance whose output is to be captured
      * @return the standard output of the process as a string, with null characters removed
-     * @throws IOException if an I/O error occurs while reading the process's output stream
+     * @throws IOException          if an I/O error occurs while reading the process's output stream
      * @throws InterruptedException if the current thread is interrupted while waiting for the process to complete
      */
     @NotNull
@@ -597,13 +658,13 @@ public class OSUtil {
         if (modelList.contains(modelName)) {
             return "Model '" + modelName + "' is already available in Ollama.";
         }
-        // Otherwise, run it – Ollama will download it if necessary
+        // Otherwise, run it - Ollama will download it if necessary
         return executeCommandInWsl(
                 "ollama run " + modelName, distro, username, password
         );
     }
 
-    private static Process keepAliveProcess;
+    public static Process keepAliveProcess;
 
     /**
      * Starts the specified WSL distribution and makes sure the services used by the app are running.
@@ -612,7 +673,7 @@ public class OSUtil {
      * The keepalive process prevents that idle shutdown while the app is expecting localhost-forwarded
      * services to remain reachable.</p>
      *
-     * @param distro the WSL distribution name
+     * @param distro   the WSL distribution name
      * @param username the WSL username
      * @param password the password for WSL username
      * @return true when the WSL startup command is executed successfully
@@ -646,8 +707,7 @@ public class OSUtil {
                     "if command -v systemctl >/dev/null 2>&1; then",
                     "sudo -n systemctl start ollama >/dev/null 2>&1 || true;",
                     "sudo -n systemctl start comfyui >/dev/null 2>&1 || true;",
-                    "else",
-                    "sudo -n service ollama start >/dev/null 2>&1 || true;",
+                    "else", "sudo -n service ollama start >/dev/null 2>&1 || true;",
                     "sudo -n service comfyui start >/dev/null 2>&1 || true;",
                     "fi"
             );
@@ -663,7 +723,7 @@ public class OSUtil {
 
     /**
      * Refreshes Windows portproxy mappings to current WSL IP.
-     *
+     * <p>
      * Ensures localhost:<port> routes correctly to WSL services even after IP changes.
      */
     @Loggable
@@ -689,10 +749,8 @@ public class OSUtil {
         executeCommand("netsh interface portproxy delete v4tov4 listenaddress=127.0.0.1 listenport=" + comfyPort);
 
         // Add fresh proxies
-        executeCommand("netsh interface portproxy add v4tov4 listenaddress=127.0.0.1 listenport=" + ollamaPort +
-                " connectaddress=" + wslIp + " connectport=" + ollamaPort);
-        executeCommand("netsh interface portproxy add v4tov4 listenaddress=127.0.0.1 listenport=" + comfyPort +
-                " connectaddress=" + wslIp + " connectport=" + comfyPort);
+        executeCommand("netsh interface portproxy add v4tov4 listenaddress=127.0.0.1 listenport=" + ollamaPort + " connectaddress=" + wslIp + " connectport=" + ollamaPort);
+        executeCommand("netsh interface portproxy add v4tov4 listenaddress=127.0.0.1 listenport=" + comfyPort + " connectaddress=" + wslIp + " connectport=" + comfyPort);
 
         // Optional: wait a bit for Windows to apply portproxy changes
         Thread.sleep(3000);
@@ -703,7 +761,7 @@ public class OSUtil {
         if (isTcpPortBusy("127.0.0.1", comfyPort)) {
             log.warn("Port {} not reachable after proxy refresh.", comfyPort);
         }
-        log.info("Portproxy refreshed → localhost:{} and localhost:{} now point to {}", ollamaPort, comfyPort, wslIp);
+        log.info("Portproxy refreshed -> localhost:{} and localhost:{} now point to {}", ollamaPort, comfyPort, wslIp);
     }
 
     /**
@@ -750,9 +808,9 @@ public class OSUtil {
             // Filter out empty lines and completely strip ANSI escape codes
             List<String> cleanLines = allLines.stream()
                     .map(line -> line
-                            // 1. Strip standard CSI escape sequences (e.g., colors, cursor show/hide like \u001B[38;5;203m or \u001B[?25h)
+                            // Strip standard CSI escape sequences (e.g., colors, cursor show/hide like \u001B[38;5;203m or \u001B[?25h)
                             .replaceAll("\u001B\\[[\\d;?]*[A-Za-z]", "")
-                            // 2. Strip OSC terminal query sequences (e.g., \u001B]11;?\u001B\)
+                            // Strip OSC terminal query sequences (e.g., \u001B]11;?\u001B\)
                             .replaceAll("\u001B\\][^\u001B\u0007]*(\u0007|\u001B\\\\)", "")
                             .trim())
                     .filter(line -> !line.isEmpty())
@@ -844,7 +902,7 @@ public class OSUtil {
     /**
      * Reads the OpenClaw configuration file from WSL to extract the Gateway authentication token.
      *
-     * @param distro the WSL distribution name
+     * @param distro   the WSL distribution name
      * @param username the WSL username
      * @return the authentication token, or null if not found
      */

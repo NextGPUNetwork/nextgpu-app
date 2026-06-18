@@ -1,6 +1,6 @@
 package ai.nextgpu.agent.ui.component.hub
 
-import androidx.compose.foundation.BorderStroke
+import ai.nextgpu.agent.ui.component.CustomButton
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -19,7 +19,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.window.Dialog
 import ai.nextgpu.agent.ui.component.NumericStepper
-import ai.nextgpu.agent.ui.component.common.CustomButton
 import ai.nextgpu.agent.ui.theme.*
 
 @Composable

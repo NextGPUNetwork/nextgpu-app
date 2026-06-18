@@ -115,10 +115,10 @@ public class ComputerDto extends BaseDto {
     public static Map<String, String> toComputerAttributeDtosMap(
             Map<ComputerAttributeType, String> attributeMap) {
 
-        // 1. Create new map
+        // Create new map
         Map<String , String> result = new HashMap<>();
 
-        // 2. Iterate and convert
+        // Iterate and convert
         for (Map.Entry<ComputerAttributeType, String> entry : attributeMap.entrySet()) {
             result.put(entry.getKey().getName(), entry.getValue());
         }

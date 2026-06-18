@@ -15,7 +15,8 @@ import ai.nextgpu.common.dto.WebSocketMessageDto;
 import ai.nextgpu.common.report.HardwareReport;
 import ai.nextgpu.common.util.JsonUtil;
 import ai.nextgpu.common.util.StringUtil;
-import lombok.extern.slf4j.Slf4j;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.bouncycastle.jcajce.SecretKeyWithEncapsulation;
 import org.bouncycastle.pqc.jcajce.spec.KyberParameterSpec;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -49,9 +50,10 @@ import java.util.concurrent.atomic.AtomicReference;
  * Thread-safety: key material is stored in {@link java.util.concurrent.atomic.AtomicReference AtomicReference}s to
  * allow safe updates across messaging callbacks.
  */
-@Slf4j
 @Service
 public class WebSocketMessageService implements MessageListener {
+
+    private static final Logger log = LoggerFactory.getLogger(WebSocketMessageService.class);
 
     private NextGpuAgentService service;
 
@@ -170,7 +172,7 @@ public class WebSocketMessageService implements MessageListener {
     public byte[] get32BytesAesKey() throws InvalidAlgorithmParameterException, NoSuchAlgorithmException, NoSuchProviderException {
         SecretKeyWithEncapsulation senderKey = agentSecurityService.generateEncryptionKey(sessionConsumerPublicKey.get());
         byte[] encryptionKey = senderKey.getEncoded();       // ephemeral secret
-        // 3. Generate a 256-bit AES key to encrypt data
+        // Generate a 256-bit AES key to encrypt data
         return Arrays.copyOf(encryptionKey, 32);
     }
 
