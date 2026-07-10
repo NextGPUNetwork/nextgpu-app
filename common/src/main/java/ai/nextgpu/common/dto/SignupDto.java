@@ -24,4 +24,13 @@ public class SignupDto {
 
     @NotNull
     private Role role;
+
+    @NotBlank
+    String message;
+
+    @NotBlank
+    String nonce;
+
+    @NotBlank
+    String signature;
 }

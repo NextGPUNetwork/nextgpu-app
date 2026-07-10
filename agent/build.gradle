@@ -46,6 +46,9 @@ dependencies {
     // Open System and Hardware Information
     implementation group: 'com.github.oshi', name: 'oshi-core-java11', version: '6.6.6'
 
+
+    implementation 'net.java.dev.jna:jna-platform:5.17.0'
+
     // Lombok
     compileOnly 'org.projectlombok:lombok'
     annotationProcessor 'org.projectlombok:lombok'

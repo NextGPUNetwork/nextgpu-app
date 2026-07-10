@@ -36,10 +36,11 @@ public class ComputerAttributeTypeDto extends BaseMetaDataDto {
     public static ComputerAttributeTypeDto toDto(ComputerAttributeType attributeType) {
         return ComputerAttributeTypeDto.builder()
                 .uuid(attributeType.getUuid())
+                .name(attributeType.getName())
+                .description(attributeType.getDescription())
                 .datatype(attributeType.getDatatype())
                 .version(attributeType.getVersion())
                 .dateCreated(attributeType.getDateCreated())
-                .dateUpdated(attributeType.getDateUpdated())
                 .dateUpdated(attributeType.getDateUpdated())
                 .retired(attributeType.getRetired())
                 .dateRetired(attributeType.getDateRetired())

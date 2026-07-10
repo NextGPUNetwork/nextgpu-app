@@ -95,7 +95,7 @@ public class NextGpuAiService {
     private HardwareUtil hardwareUtil;
 
     @Autowired
-    public NextGpuAiService(NextGpuWebService nextGpuWebService, @Value("${ollama.api.url:http://localhost:${ollama.port:11434}}") String ollamaUrl, @Value("${comfy.basedir:./agent/comfy/basedir}") String comfyBaseDir, GlobalPropertyRepository globalPropertyRepository, ChatMessageRepository chatMessageRepository, ChatSessionRepository chatSessionRepository, ProjectRepository projectRepository, AnalyticsService analyticsService) {
+    public NextGpuAiService(NextGpuWebService nextGpuWebService, @Value("${ollama.api.url:http://localhost:11434}") String defaultOllamaUrl, @Value("${comfy.basedir:./agent/comfy/basedir}") String comfyBaseDir, GlobalPropertyRepository globalPropertyRepository, ChatMessageRepository chatMessageRepository, ChatSessionRepository chatSessionRepository, ProjectRepository projectRepository, AnalyticsService analyticsService) {
         this.nextGpuWebService = nextGpuWebService;
         this.comfyBaseDir = comfyBaseDir;
 
@@ -113,7 +113,8 @@ public class NextGpuAiService {
         this.longRunningRestTemplate = new RestTemplate(longRunningRf);
 
         this.objectMapper = new ObjectMapper();
-        this.ollamaUrl = ollamaUrl;
+        Optional<GlobalProperty> localIpProp = globalPropertyRepository.findByName(GlobalPropertyConfig.LOCAL_IP);
+        this.ollamaUrl = localIpProp.map(globalProperty -> defaultOllamaUrl.replaceAll("localhost|127.0.0.1", globalProperty.getValueReference())).orElse(defaultOllamaUrl);
         this.globalPropertyRepository = globalPropertyRepository;
         this.chatMessageRepository = chatMessageRepository;
         this.chatSessionRepository = chatSessionRepository;

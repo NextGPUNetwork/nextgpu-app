@@ -37,7 +37,7 @@ public class GenericComponent extends BaseComponent {
     @Column(length = 50)
     private DeviceType type;
 
-    @Column(nullable = false, length = 50)
+    @Column(length = 50)
     @Comment("Name most important specification for this component.")
     private String specificationKey;
 

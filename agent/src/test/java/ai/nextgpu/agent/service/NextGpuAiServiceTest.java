@@ -85,8 +85,8 @@ class NextGpuAiServiceTest {
 
         nextGpuAiService = new NextGpuAiService(
                 nextGpuWebService,
-                OLLAMA_URL,
                 "/tmp/comfy",
+                OLLAMA_URL,
                 globalPropertyRepository,
                 chatMessageRepository,
                 chatSessionRepository,

@@ -1,7 +1,7 @@
 spring:
   application:
     name: NextGPU Agent
-    version: 0.1.1
+    version: 0.2.0
   main:
     lazy-initialization: true
   datasource:
@@ -37,14 +37,16 @@ logging:
     name: logs/nextgpuagent.log
 
 nextgpu:
+  setup:
+    required-version: 2
   agent:
     threadPoolSize: 5
     analytics:
       http-request-period-ms: 60000
   web:
     versionBaseUrl: https://nextgpu.ai
-    baseUrl: https://api-staging.nextgpu.ai # http://localhost:8080 #
-    socketUrl: wss://api-staging.nextgpu.ai/ws # ws://localhost:8080/ws #
+    baseUrl: https://api-staging.nextgpu.ai # http://localhost:8080 # https://api-staging.nextgpu.ai #
+    socketUrl: wss://api-staging.nextgpu.ai/ws # wss://api-staging.nextgpu.ai/ws #
 
 ollama:
   host: ${OLLAMA_HOST:localhost}

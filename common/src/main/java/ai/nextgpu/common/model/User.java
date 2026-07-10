@@ -4,6 +4,8 @@ import jakarta.persistence.*;
 import lombok.*;
 import org.hibernate.annotations.Comment;
 
+import java.util.Map;
+
 @Getter
 @Setter
 @MappedSuperclass

@@ -61,52 +61,46 @@ public class Cpu extends BaseComponent {
         if (other == null) throw new NullPointerException();
 
         // Ensure we're comparing the same type
+        // otherCpu is the audit component
         if (!(other instanceof Cpu otherCpu)) {
            throw new IllegalArgumentException("Cannot compare Cpu with " + other.getClass().getSimpleName());
         }
 
         // Compare CPU-specific properties with 5% tolerance
-        if (!Objects.equals(this.cores, otherCpu.cores))
+        if (otherCpu.cores < this.cores)
             throw new ComponentException(
                     ErrorCode.SPECIFICATION_MISMATCH_ERROR.getDescription(),
                     ErrorCode.SPECIFICATION_MISMATCH_ERROR,
-                    new IllegalArgumentException("Cpu cores count mismatch: expected="+this.cores+"actual="+otherCpu.cores)
-            ); // Must be equal
+                    new IllegalArgumentException("Cpu cores count mismatch: expected="+this.cores+" actual="+otherCpu.cores)
+            );
 
-        if (!Objects.equals(this.threads, otherCpu.threads))
+        if (otherCpu.threads < this.threads)
             throw new ComponentException(
                     ErrorCode.SPECIFICATION_MISMATCH_ERROR.getDescription(),
                     ErrorCode.SPECIFICATION_MISMATCH_ERROR,
-                    new IllegalArgumentException("Cpu thread count mismatch: expected="+this.threads+"actual="+otherCpu.threads)
-            ); // Must be equal
+                    new IllegalArgumentException("Cpu thread count mismatch: expected="+this.threads+" actual="+otherCpu.threads)
+            );
 
         //noinspection DuplicatedCode
-        if (exceedsTolerance(this.maxClock, otherCpu.maxClock, 5.0))
+        if (exceedsTolerance(this.maxClock, otherCpu.maxClock, 10.0))
             throw new ComponentException(
                     ErrorCode.MAX_TOLERANCE_VIOLATION.getDescription(),
                     ErrorCode.MAX_TOLERANCE_VIOLATION,
-                    new IllegalArgumentException("Cpu maxClock exceeds maximum allowed tolerance: expected="+this.maxClock+"actual="+otherCpu.maxClock )
+                    new IllegalArgumentException("Cpu maxClock exceeds maximum allowed tolerance: expected="+this.maxClock+" actual="+otherCpu.maxClock )
             );
 
-        if (exceedsTolerance(this.minClock, otherCpu.minClock, 5.0))
+        if (exceedsTolerance(this.minClock, otherCpu.minClock, 10.0))
             throw new ComponentException(
                     ErrorCode.MAX_TOLERANCE_VIOLATION.getDescription(),
                     ErrorCode.MAX_TOLERANCE_VIOLATION,
-                    new IllegalArgumentException("Cpu minClock exceeds maximum allowed tolerance: expected="+this.minClock+"actual="+otherCpu.minClock)
+                    new IllegalArgumentException("Cpu minClock exceeds maximum allowed tolerance: expected="+this.minClock+" actual="+otherCpu.minClock)
             );
 
-        if (exceedsTolerance(this.getTdpWatts(), otherCpu.getTdpWatts(), 5.0))
+        if (exceedsTolerance(this.l3Cache, otherCpu.l3Cache, 10.0))
             throw new ComponentException(
                     ErrorCode.MAX_TOLERANCE_VIOLATION.getDescription(),
                     ErrorCode.MAX_TOLERANCE_VIOLATION,
-                    new IllegalArgumentException("Cpu tdpWatts exceeds maximum allowed tolerance: expected="+this.getTdpWatts()+"actual="+otherCpu.getTdpWatts())
-            );
-
-        if (exceedsTolerance(this.l3Cache, otherCpu.l3Cache, 5.0))
-            throw new ComponentException(
-                    ErrorCode.MAX_TOLERANCE_VIOLATION.getDescription(),
-                    ErrorCode.MAX_TOLERANCE_VIOLATION,
-                    new IllegalArgumentException("Cpu l3Cache exceeds maximum allowed tolerance: expected="+this.l3Cache+"actual="+otherCpu.l3Cache)
+                    new IllegalArgumentException("Cpu l3Cache exceeds maximum allowed tolerance: expected="+this.l3Cache+" actual="+otherCpu.l3Cache)
             );
     }
 

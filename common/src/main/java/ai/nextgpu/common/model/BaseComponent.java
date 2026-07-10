@@ -53,6 +53,21 @@ public abstract class BaseComponent extends BaseEntity {
         return Objects.hash(super.hashCode(), manufacturer, model, yearReleased, productIdentifier);
     }
 
+    /**
+     * Audits {@code this} persisted component (the expected/DB record) against {@code other}
+     * (a freshly reported component of the same type), e.g. from a hardware report, and throws
+     * if a specification differs beyond what's allowed.
+     * <p>
+     * Implementations should first verify {@code other} is the same concrete component type,
+     * then compare type-specific fields, using {@link #exceedsTolerance(Integer, Integer, double)}
+     * for numeric fields that are allowed to drift within a percentage tolerance.
+     *
+     * @param other the reported component to compare against this persisted record
+     * @throws NullPointerException if {@code other} is {@code null}
+     * @throws IllegalArgumentException if {@code other} is not the same component type as {@code this}
+     * @throws RuntimeException (typically {@code ComponentException}) if a specification mismatch
+     *         or tolerance violation is found
+     */
     public abstract void compareForAudit(BaseComponent other) throws RuntimeException;
 
     /**
@@ -64,9 +79,11 @@ public abstract class BaseComponent extends BaseEntity {
      * @return true if the values are within the allowed percentage difference
      */
     protected boolean exceedsTolerance(Integer value1, Integer value2, double tolerance) {
-        if (value2 == null) return true;
         if (value1 == null) return false; // The value is coming from the DB record.
+        if (value2 == null) return true;
         if (value1.equals(value2)) return false;
+        // For example, the audit system value for CPU cores is greater than the persisted value in the dataset
+        if(value2 > value1) return true;
 
         double diff = Math.abs(value1 - value2);
         double avg = (value1 + value2) / 2.0;

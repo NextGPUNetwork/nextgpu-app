@@ -148,7 +148,7 @@ fun LoginScreen(
                                     scope.launch {
                                         try {
                                             val service = springContext.getBean(NextGpuAgentService::class.java)
-                                            val success = service.authenticate(walletAddress, oneTimeKey)
+                                            val success = service.authenticate(oneTimeKey)
 
                                             if (success) {
                                                 onProceed()

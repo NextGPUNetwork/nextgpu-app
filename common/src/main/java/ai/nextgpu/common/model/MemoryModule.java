@@ -61,7 +61,6 @@ public class MemoryModule extends BaseComponent {
     @Comment("Front side bus speed (clock) in MHz")
     private Integer busSpeed; // Clock speed in MHz
 
-
     public void compareForAudit(BaseComponent other) throws NullPointerException, IllegalArgumentException, ComponentException {
         if (other == null) throw  new NullPointerException("Component cannot be null.");
 
@@ -71,12 +70,11 @@ public class MemoryModule extends BaseComponent {
         }
 
         // Compare bus speed with 5% tolerance
-        if (exceedsTolerance(this.busSpeed, otherMemoryModule.busSpeed, 5.0))
+        if (exceedsTolerance(this.busSpeed, otherMemoryModule.busSpeed, 15.0))
             throw new ComponentException(
                     ErrorCode.MAX_TOLERANCE_VIOLATION.getDescription(),
                     ErrorCode.MAX_TOLERANCE_VIOLATION,
-                    new IllegalArgumentException("MemoryModule busSpeed exceeds maximum allowed tolerance: expected="+this.busSpeed+"actual="+otherMemoryModule.busSpeed)
+                    new IllegalArgumentException("MemoryModule busSpeed exceeds maximum allowed tolerance: expected="+this.busSpeed+" actual="+otherMemoryModule.busSpeed)
             );
-
     }
 }

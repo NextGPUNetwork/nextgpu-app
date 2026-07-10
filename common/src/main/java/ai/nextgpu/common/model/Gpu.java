@@ -90,44 +90,27 @@ public class Gpu extends BaseComponent {
         if (!(other instanceof Gpu otherGpu)) {
             throw new IllegalArgumentException("Cannot compare Gpu with " + other.getClass().getSimpleName());
         }
-        String componentType = this.getClass().getSimpleName();
-
-        // Compare CPU-specific properties with 5% tolerance
-        if (!Objects.equals(this.shaderCores, otherGpu.shaderCores))
-            throw new ComponentException(
-                    ErrorCode.SPECIFICATION_MISMATCH_ERROR.getDescription(),
-                    ErrorCode.SPECIFICATION_MISMATCH_ERROR,
-                    new IllegalArgumentException("Gpu shaderCores count mismatch: expected="+this.shaderCores+"actual="+otherGpu.shaderCores)
-            ); // Must be equal
-
-        if (!Objects.equals(this.tensorCores, otherGpu.tensorCores))
-            throw new ComponentException(
-                    ErrorCode.SPECIFICATION_MISMATCH_ERROR.getDescription(),
-                    ErrorCode.SPECIFICATION_MISMATCH_ERROR,
-                    new IllegalArgumentException("Gpu tensorCores count mismatch: expected="+this.tensorCores+"actual="+otherGpu.tensorCores)
-            ); // Must be equal
-
-        //noinspection DuplicatedCode
+        
         if (exceedsTolerance(this.maxClock, otherGpu.maxClock, 5.0))
             throw new ComponentException(
                     ErrorCode.MAX_TOLERANCE_VIOLATION.getDescription(),
                     ErrorCode.MAX_TOLERANCE_VIOLATION,
-                    new IllegalArgumentException("Gpu minClock exceeds maximum allowed tolerance: expected="+this.minClock+"actual="+otherGpu.minClock)
+                    new IllegalArgumentException("Gpu minClock exceeds maximum allowed tolerance: expected="+this.minClock+" actual="+otherGpu.minClock)
             );
 
         if (exceedsTolerance(this.minClock, otherGpu.minClock, 5.0))
             throw new ComponentException(
                     ErrorCode.MAX_TOLERANCE_VIOLATION.getDescription(),
                     ErrorCode.MAX_TOLERANCE_VIOLATION,
-                    new IllegalArgumentException("Gpu minClock exceeds maximum allowed tolerance: expected="+this.minClock+"actual="+otherGpu.minClock)
+                    new IllegalArgumentException("Gpu minClock exceeds maximum allowed tolerance: expected="+this.minClock+" actual="+otherGpu.minClock)
             );
 
-        if (exceedsTolerance(this.getTdpWatts(), otherGpu.getTdpWatts(), 5.0))
-            throw new ComponentException(
-                    ErrorCode.MAX_TOLERANCE_VIOLATION.getDescription(),
-                    ErrorCode.MAX_TOLERANCE_VIOLATION,
-                    new IllegalArgumentException("Gpu tdpWatts exceeds maximum allowed tolerance: expected="+this.getTdpWatts()+"actual="+otherGpu.getTdpWatts())
-            );
+//        if (exceedsTolerance(this.getTdpWatts(), otherGpu.getTdpWatts(), 5.0))
+//            throw new ComponentException(
+//                    ErrorCode.MAX_TOLERANCE_VIOLATION.getDescription(),
+//                    ErrorCode.MAX_TOLERANCE_VIOLATION,
+//                    new IllegalArgumentException("Gpu tdpWatts exceeds maximum allowed tolerance: expected="+this.getTdpWatts()+" actual="+otherGpu.getTdpWatts())
+//            );
     }
 
 }

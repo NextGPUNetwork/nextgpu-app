@@ -1,8 +1,9 @@
 package ai.nextgpu.agent.util;
 
 import ai.nextgpu.agent.aop.Loggable;
-import ai.nextgpu.agent.service.NextGpuAgentService;
 import ai.nextgpu.common.model.*;
+import com.sun.jna.platform.win32.Advapi32Util;
+import com.sun.jna.platform.win32.WinReg;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.apache.commons.csv.CSVFormat;
@@ -17,14 +18,24 @@ import oshi.hardware.*;
 import oshi.hardware.CentralProcessor.ProcessorCache;
 import oshi.software.os.OperatingSystem;
 
+import org.w3c.dom.Document;
+import org.w3c.dom.Element;
+import org.w3c.dom.NodeList;
+import org.xml.sax.InputSource;
+
+import javax.xml.parsers.DocumentBuilder;
+import javax.xml.parsers.DocumentBuilderFactory;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
+import java.io.StringReader;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
@@ -182,6 +193,7 @@ public class HardwareUtil {
         try {
             String context = "You are an encyclopedia of computer hardware. Your responses are always a valid JSON Object.";
             String prompt = String.format(
+                    "Your responses are always a valid JSON Object." +
                     "Provide specifications of CPU: %s %s. " +
                             "Do not convert value units, like Kilo, Mega or Giga. Keep them as-is. " +
                             "Model should only mention the series and model, not the vendor, e.g. Core i5 12600K, Ryzen 9 5900x, M4 Pro",
@@ -271,6 +283,7 @@ public class HardwareUtil {
             MemoryModule memoryModule = MemoryModule.builder()
                     .busSpeed((int) (module.getClockSpeed() / 1_000_000)) // Convert to MHz
                     .capacity((int) (module.getCapacity() / (1024 * 1024))) // Convert to MB
+                    .capacityUnit(StorageUnit.MEGABYTE)
                     .type(MemoryType.UNKNOWN)
                     .build();
             memoryModule.setManufacturer(module.getManufacturer());
@@ -326,6 +339,7 @@ public class HardwareUtil {
         for (GraphicsCard graphicsCard : graphicsCards) {
             Gpu gpu = Gpu.builder()
                     .capacity((int)(graphicsCard.getVRam() / (1024 * 1024))) // Convert to MB
+                    .capacityUnit(StorageUnit.MEGABYTE)
                     .type(MemoryType.UNKNOWN)
                     .build();
             gpu.setName(graphicsCard.getName());
@@ -333,7 +347,80 @@ public class HardwareUtil {
             gpu.setProductIdentifier(graphicsCard.getDeviceId());
             gpu.setDescription(graphicsCard.toString());
 
-            // Fetch missing specifications from AIService for each GPU
+            boolean nvsmiSuccess = false;
+            // Fetch GPU specifications from nvidia-smi XML output
+            try {
+                String nvsmiOutput = OSUtil.executeCommand("nvidia-smi -q -x");
+                if (nvsmiOutput != null && !nvsmiOutput.trim().isEmpty()) {
+                    DocumentBuilderFactory dbf = DocumentBuilderFactory.newInstance();
+                    // Disable external DTD resolution to avoid network calls and XXE risk
+                    dbf.setFeature("http://apache.org/xml/features/nonvalidating/load-external-dtd", false);
+                    dbf.setFeature("http://xml.org/sax/features/external-general-entities", false);
+                    dbf.setFeature("http://xml.org/sax/features/external-parameter-entities", false);
+                    DocumentBuilder db = dbf.newDocumentBuilder();
+                    Document doc = db.parse(new InputSource(new StringReader(nvsmiOutput)));
+                    doc.getDocumentElement().normalize();
+
+                    NodeList gpuNodes = doc.getElementsByTagName("gpu");
+                    for (int i = 0; i < gpuNodes.getLength(); i++) {
+                        Element gpuEl = (Element) gpuNodes.item(i);
+                        String smiName = gpuEl.getElementsByTagName("product_name").item(0).getTextContent().trim();
+
+                        // Match by name; if there is only one GPU in the report, use it unconditionally
+                        boolean nameMatches = gpuNodes.getLength() == 1
+                                || (gpu.getName() != null && (
+                                gpu.getName().equalsIgnoreCase(smiName)
+                                        || gpu.getName().toLowerCase().contains(smiName.toLowerCase())
+                                        || smiName.toLowerCase().contains(gpu.getName().toLowerCase())));
+                        if (!nameMatches) continue;
+
+                        // model — strip vendor prefix (e.g., "NVIDIA GeForce RTX 3080" → "GeForce RTX 3080")
+                        gpu.setModel(smiName.replaceFirst("(?i)^nvidia\\s+", ""));
+
+                        // architecture — product_architecture maps directly to GpuArchitecture enum
+                        NodeList archList = gpuEl.getElementsByTagName("product_architecture");
+                        if (archList.getLength() > 0) {
+                            gpu.setArchitecture(identifGpuArchitecture(archList.item(0).getTextContent().trim()));
+                        }
+
+                        // tdp — default_power_limit is the manufacturer-rated TDP (e.g., "320.00 W" → 320)
+                        NodeList ceilNodes = gpuEl.getElementsByTagName("gpu_ceiling_power_limit");
+                        if (ceilNodes.getLength() > 0) {
+                            NodeList dplNodes = ((Element) ceilNodes.item(0)).getElementsByTagName("default_power_limit");
+                            if (dplNodes.getLength() > 0) {
+                                String raw = dplNodes.item(0).getTextContent().trim().split("\\s+")[0];
+                                try { gpu.setTdpWatts((int) Double.parseDouble(raw)); } catch (NumberFormatException ignored) {}
+                            }
+                        }
+
+                        // maxClock — max_clocks/graphics_clock is the boost/max GPU clock (e.g., "2100 MHz" → 2100)
+                        NodeList maxClocksEl = gpuEl.getElementsByTagName("max_clocks");
+                        if (maxClocksEl.getLength() > 0) {
+                            NodeList gcNodes = ((Element) maxClocksEl.item(0)).getElementsByTagName("graphics_clock");
+                            if (gcNodes.getLength() > 0) {
+                                String raw = gcNodes.item(0).getTextContent().trim().split("\\s+")[0];
+                                try { gpu.setMaxClock(Integer.parseInt(raw)); } catch (NumberFormatException ignored) {}
+                            }
+                        }
+
+                        // minClock — lowest supported graphics clock reflects the base/idle clock speed
+                        NodeList supportedGcNodes = gpuEl.getElementsByTagName("supported_graphics_clock");
+                        int minClock = Integer.MAX_VALUE;
+                        for (int j = 0; j < supportedGcNodes.getLength(); j++) {
+                            String raw = supportedGcNodes.item(j).getTextContent().trim().split("\\s+")[0];
+                            try { minClock = Math.min(minClock, Integer.parseInt(raw)); } catch (NumberFormatException ignored) {}
+                        }
+                        if (minClock < Integer.MAX_VALUE) gpu.setMinClock(minClock);
+
+                        nvsmiSuccess = true;
+                        break;
+                    }
+                }
+            } catch (Exception e) {
+                log.warn("Failed to retrieve GPU info from nvidia-smi", e);
+            }
+
+            // Fetch remaining specs from AIService; if nvidia-smi was unavailable, fetch all fields via AI
             try {
                 String context = "You are an encyclopedia of computer hardware. Your responses are always a valid JSON Object.";
                 String prompt = "Provide specifications of GPU:" + gpu.getManufacturer() + "; " + gpu.getName() + ". " +
@@ -347,28 +434,32 @@ public class HardwareUtil {
                         "Aliases for Shader cores are Parallel cores, Streaming cores, CUDA cores; " +
                         "Model should only mention the series and model, not the vendor, e.g. Geforce RTX 4070 Ti; Radeon RX 7900 XTX";
                 Map<String, String> schemaMap = new HashMap<>();
-                schemaMap.put("model", "string");
-                schemaMap.put("architecture", "string");
                 schemaMap.put("idDiscontinued", "boolean");
                 schemaMap.put("yearReleased", "integer");
-                schemaMap.put("tdp", "integer");
-                schemaMap.put("minClock", "integer");
-                schemaMap.put("maxClock", "integer");
                 schemaMap.put("memoryType", "string");
                 schemaMap.put("shaderCores", "integer");
                 schemaMap.put("tensorCores", "integer");
+                if (!nvsmiSuccess) {
+                    schemaMap.put("model", "string");
+                    schemaMap.put("architecture", "string");
+                    schemaMap.put("tdp", "integer");
+                    schemaMap.put("minClock", "integer");
+                    schemaMap.put("maxClock", "integer");
+                }
 
                 Map<String, Object> response = httpUtil.getStructuredAiResponse(BASE_URL, context, prompt, schemaMap);
-                gpu.setModel((String)response.get("model"));
-                gpu.setArchitecture(identifGpuArchitecture((String)response.get("architecture")));
-                gpu.setIsDiscontinued((boolean)response.get("isDiscontinued"));
-                gpu.setYearReleased((int)response.get("yearReleased"));
-                gpu.setTdpWatts((int)response.get("tdp"));
-                gpu.setMinClock((int)response.get("minClock"));
-                gpu.setMaxClock((int)response.get("maxClock"));
-                gpu.setShaderCores((int)response.get("shaderCores"));
-                gpu.setTensorCores((int)response.get("tensorCores"));
-                gpu.setType(MemoryType.valueOf((String)response.get("memoryType")));
+                if (!nvsmiSuccess) {
+                    gpu.setModel((String) response.get("model"));
+                    gpu.setArchitecture(identifGpuArchitecture((String) response.get("architecture")));
+                    gpu.setTdpWatts((int) response.get("tdp"));
+                    gpu.setMinClock((int) response.get("minClock"));
+                    gpu.setMaxClock((int) response.get("maxClock"));
+                }
+                gpu.setIsDiscontinued((boolean) response.get("idDiscontinued"));
+                gpu.setYearReleased((int) response.get("yearReleased"));
+                gpu.setShaderCores((int) response.get("shaderCores"));
+                gpu.setTensorCores((int) response.get("tensorCores"));
+                gpu.setType(identifyMemoryType((String) response.get("memoryType")));
             } catch (Exception e) {
                 log.error("Failed to generate response", e);
             }
@@ -408,6 +499,7 @@ public class HardwareUtil {
                     .type(StorageType.EXPRESS_SOLID_STATE)
                     .capacity((int) (diskStore.getSize() / (1024 * 1024 *  1024))) // Convert to GB
                     .cache(0)
+                    .capacityUnit(StorageUnit.GIGABYTE)
                     .build();
             storage.setName(diskStore.getModel());
             storage.setModel(diskStore.getModel());
@@ -430,7 +522,6 @@ public class HardwareUtil {
                 Map<String, String> schemaMap = new HashMap<>();
                 schemaMap.put("manufacturer", "string");
                 schemaMap.put("idDiscontinued", "boolean");
-                schemaMap.put("tdp", "integer");
                 schemaMap.put("yearReleased", "integer");
                 schemaMap.put("cacheSize", "integer");
 
@@ -438,7 +529,6 @@ public class HardwareUtil {
                 storage.setManufacturer((String) response.get("manufacturer"));
                 storage.setIsDiscontinued((boolean)response.get("idDiscontinued"));
                 storage.setYearReleased((int)response.get("yearReleased"));
-                storage.setTdpWatts((int)response.get("tdp"));
                 storage.setCache(((int)response.get("cacheSize")) / (1024 * 1024));
             } catch (Exception e) {
                 log.error("Failed to generate response", e);
@@ -459,6 +549,9 @@ public class HardwareUtil {
         Set<NetworkDevice> nics = new HashSet<>();
         List<NetworkIF> networkIFs = hardware.getNetworkIFs();
         for (NetworkIF networkIF : networkIFs) {
+            if (networkIF.getDisplayName().toLowerCase().contains("virtual") || networkIF.getIfOperStatus().getValue() == 2) {
+                continue;
+            }
             networkIF.updateAttributes();
             NetworkDevice nic = NetworkDevice.builder()
                     .macAddress(networkIF.getMacaddr())
@@ -545,40 +638,6 @@ public class HardwareUtil {
             usb.setManufacturer(usbDevice.getVendor().isEmpty() ? usbDevice.getVendorId() : usbDevice.getVendor());
             usb.setProductIdentifier(usbDevice.getUniqueDeviceId());
             usb.setDescription(usbDevice.toString());
-
-            // Fetch missing specifications from AIService
-            try {
-                String context = "You are an encyclopedia of computer hardware. Your responses are always a valid JSON Object.";
-                String prompt = "Provide specifications of USB Device: "
-                        + usbDevice.getName() + ". "
-                        + "Do not convert value units, like Kilo, Mega or Giga. Keep them as-is. "
-                        + "If TDP (thermal design power) is unavailable, then put in an estimate."
-                        + "Type should be one of these values: "
-                        + Arrays.toString(DeviceType.values()) + "; "
-                        + "Purpose should be a short string which describes primary use of the device";
-
-                // Define the expected schema for AIService
-                Map<String, String> schemaMap = new HashMap<>();
-                schemaMap.put("model", "string");
-                schemaMap.put("idDiscontinued", "boolean");
-                schemaMap.put("yearReleased", "integer");
-                schemaMap.put("tdp", "integer");
-                schemaMap.put("type", "string");
-                schemaMap.put("purpose", "string");
-
-                Map<String, Object> response = httpUtil.getStructuredAiResponse(BASE_URL, context, prompt, schemaMap);
-                usb.setModel(response.getOrDefault("model", usbDevice.getProductId()).toString());
-                usb.setIsDiscontinued((boolean)response.getOrDefault("idDiscontinued", false));
-                usb.setYearReleased((int)response.getOrDefault("yearReleased", "1900"));
-                usb.setTdpWatts(response.containsKey("tdp") ? (int) response.get("tdp") : 0);
-                usb.setType(DeviceType.valueOf((String) response.get("type")));
-
-                // Assign the "purpose" to specificationKey / specificationValue
-                usb.setSpecificationKey("purpose");
-                usb.setSpecificationValue(response.containsKey("purpose") ? response.get("purpose").toString() : "N/A");
-            } catch (Exception e) {
-                log.error("Failed to generate response", e);
-            }
             genericComponents.add(usb);
         }
         return genericComponents;
@@ -815,7 +874,6 @@ public class HardwareUtil {
      *
      * @return {@link Computer} object containing all detected hardware components
      */
-
     public Computer detectComputer() {
         Set<Cpu> cpus = detectCpus();
 
@@ -836,9 +894,8 @@ public class HardwareUtil {
         Computer computer = new Computer();
         computer.setCpus(cpus);
         computer.setGpus(gpus);
-        //computer.setName(); TODO
+        computer.setName(getComputerName());
         //computer.setComputerAttributes(); // TODO
-        //computer.setType(); // TODO
         computer.setMemories(memoryModules);
         computer.setStorages(storages);
         computer.setNetworkDevices(networks);
@@ -846,7 +903,150 @@ public class HardwareUtil {
         computer.addOtherComponents(powerSources);
         computer.addOtherComponents(usbDevices);
 
+        ComputerType type = identifyComputerType();
+        computer.setType(type);
+        computer.setName(type.name());
+
         return computer;
+    }
+
+    /**
+     * Categorizes the current machine into a specific {@link ComputerType} using heuristics based on
+     * hardware specifications, battery presence, and processor attributes.
+     * <p>
+     * The evaluation is performed sequentially using the following rules:
+     * </p>
+     * <ol>
+     *   <li><b>Virtual Machine Detection:</b> Checks manufacturer and model strings for known hypervisors
+     *       (e.g., VMware, VirtualBox, Hyper-V).</li>
+     *   <li><b>Gaming Console Detection:</b> Checks for retail gaming hardware indicators (e.g., Xbox, PlayStation).</li>
+     *   <li><b>Portable / Mobile Detection:</b> Inspects the system's power sources. If a non-UPS battery
+     *       with a valid capacity is present, it is classified as either a {@code TABLET} or a {@code LAPTOP}.</li>
+     *   <li><b>Server Detection:</b> If no battery is found, the system is classified as a {@code SERVER}
+     *       if it matches server-specific model names, utilizes enterprise processors (Intel Xeon, AMD EPYC),
+     *       or possesses a high hardware footprint (multi-socket or >16 physical cores).</li>
+     *   <li><b>Workstation Detection:</b> Checks for premium desktop lines optimized for professional workloads
+     *       (e.g., Dell Precision, Lenovo ThinkStation).</li>
+     *   <li><b>Fallback:</b> Defaults to {@code PERSONAL_DESKTOP} if no other criteria are met.</li>
+     * </ol>
+     *
+     * @return The identified {@link ComputerType} matching the hardware footprint.
+     * @see #detectHardwareSpecifications()
+     * @see #normalize(String)
+     */
+    private ComputerType identifyComputerType() {
+        HardwareAbstractionLayer hal = detectHardwareSpecifications();
+        ComputerSystem cs = hal.getComputerSystem();
+
+        String manufacturer = normalize(cs.getManufacturer());
+        String model = normalize(cs.getModel());
+        String combined = (manufacturer + " " + model).toLowerCase();
+
+        // Virtual machine detection
+        if (combined.contains("virtualbox") || combined.contains("vmware") ||
+                combined.contains("qemu") || combined.contains("kvm") ||
+                combined.contains("hyper-v") || combined.contains("virtual machine") ||
+                combined.contains("parallels") || combined.contains("xen")) {
+            return ComputerType.VIRTUAL_MACHINE;
+        }
+
+        // Gaming console detection (unlikely, but possible)
+        if (combined.contains("xbox") || combined.contains("playstation") ||
+                combined.contains("nintendo")) {
+            return ComputerType.GAMING_CONSOLE;
+        }
+
+        // Check for battery (internal power source)
+        boolean hasBattery = false;
+        for (PowerSource ps : hal.getPowerSources()) {
+            String name = ps.getDeviceName().toLowerCase();
+            // Consider a battery if max capacity > 0 and not a UPS
+            if (ps.getMaxCapacity() > 0 && !name.contains("ups")) {
+                hasBattery = true;
+                break;
+            }
+        }
+
+        if (hasBattery) {
+            // Mobile device
+            if (combined.contains("tablet") || combined.contains("surface") ||
+                    combined.contains("ipad") || combined.contains("tab")) {
+                return ComputerType.TABLET;
+            }
+            // Could further check for "phone" or "mobile", but we'll default to LAPTOP
+            return ComputerType.LAPTOP;
+        }
+
+        // No battery → desktop, server, or workstation
+        // Server indicators: model contains "server"/"rack", or CPU is Xeon/EPYC,
+        // or multiple physical packages / high core count
+        boolean isServerModel = combined.contains("server") || combined.contains("rack");
+        CentralProcessor cpu = hal.getProcessor();
+        String cpuVendor = cpu.getProcessorIdentifier().getVendor().toLowerCase();
+        boolean isXeonOrEpyc = cpuVendor.contains("intel") && combined.contains("xeon") ||
+                cpuVendor.contains("amd") && combined.contains("epyc");
+        int packages = cpu.getPhysicalPackageCount();
+        int cores = cpu.getPhysicalProcessorCount();
+        boolean isHighEnd = packages > 1 || cores > 16; // arbitrary threshold
+
+        if (isServerModel || isXeonOrEpyc || isHighEnd) {
+            return ComputerType.SERVER;
+        }
+
+        // Workstation indicators
+        if (combined.contains("precision") || combined.contains("thinkstation") ||
+                combined.contains("z series") || combined.contains("workstation")) {
+            return ComputerType.WORKSTATION;
+        }
+
+        // Fallback
+        return ComputerType.PERSONAL_DESKTOP;
+    }
+
+
+    /**
+     * Retrieves the network hostname of the current machine using a multi-tiered fallback strategy.
+     * <p>
+     * The method attempts to resolve the computer name in the following order:
+     * </p>
+     * <ol>
+     *   <li><b>Primary (OSHI):</b> Makes an OS-level call via OSHI's {@link OperatingSystem} network
+     *       parameters. This is the most reliable method for gathering the actual configured system name.
+     *       Generic loops like "localhost" are ignored.</li>
+     *   <li><b>Fallback (InetAddress):</b> If OSHI fails or throws an exception, it falls back to
+     *       standard Java networking via {@link java.net.InetAddress#getLocalHost()}.</li>
+     *   <li><b>Ultimate Fallback:</b> If both lookup attempts fail due to environmental or network
+     *       configuration issues, it defaults to a standardized unknown string representation.</li>
+     * </ol>
+     *
+     * @return The trimmed network hostname string if successfully resolved; otherwise, a fallback
+     *         string representation indicating an unknown host.
+     */
+    private String getComputerName() {
+        // 1. Primary: OSHI (most reliable, OS-level call)
+        try {
+            SystemInfo systemInfo = new SystemInfo();
+            OperatingSystem os = systemInfo.getOperatingSystem();
+            String hostname = os.getNetworkParams().getHostName();
+            if (hostname != null && !hostname.trim().isEmpty() && !hostname.equalsIgnoreCase("localhost")) {
+                return hostname.trim();
+            }
+        } catch (Exception e) {
+            log.warn("OSHI hostname lookup failed, falling back to InetAddress", e);
+        }
+
+        // 2. Fallback: InetAddress (just in case OSHI fails)
+        try {
+            String hostname = java.net.InetAddress.getLocalHost().getHostName();
+            if (hostname != null && !hostname.trim().isEmpty()) {
+                return hostname.trim();
+            }
+        } catch (Exception e) {
+            log.warn("Failed to retrieve hostname via InetAddress", e);
+        }
+
+        // 3. Ultimate fallback
+        return ComputerType.UNKNOWN.name();
     }
 
     /**
@@ -874,5 +1074,130 @@ public class HardwareUtil {
                 isDeepCleaning.set(false);
             }
         }, executorService);
+    }
+
+    //****************************//
+    // ** Hardware Fingerprint ** //
+    //****************************//
+
+    /**
+     * Generates a unique cryptographic hash acting as a hardware fingerprint for the machine.
+     * <p>
+     * This method collects various hardware identifiers, including the System Hardware UUID,
+     * BIOS Serial Number, Motherboard (Baseboard) Serial Number, and the Windows Machine GUID.
+     * The collected strings are normalized, combined into a standardized format, and hashed
+     * to produce a consistent identifier.
+     * </p>
+     *
+     * @return A string representing the unique cryptographic hash of the hardware configuration.
+     * @see #getMachineGuid()
+     * @see #normalize(String)
+     * @see #generateHash(String)
+     */
+    public static String generateHardwareFingerprint() {
+        SystemInfo systemInfo = new SystemInfo();
+        HardwareAbstractionLayer hal = systemInfo.getHardware();
+        ComputerSystem computerSystem = hal.getComputerSystem();
+
+        String hardwareUuid = normalize(computerSystem.getHardwareUUID());
+        String biosSerial = normalize(computerSystem.getSerialNumber());
+        Baseboard baseboard = computerSystem.getBaseboard();
+        String motherboardSerial = normalize(baseboard.getSerialNumber());
+        String machineGuid = getMachineGuid();
+
+        String fingerprint = String.join("\n",
+                "UUID=" + hardwareUuid,
+                "BIOS=" + biosSerial,
+                "BOARD=" + motherboardSerial,
+                "MACHINEGUID=" + machineGuid
+        );
+
+        return generateHash(fingerprint);
+    }
+
+    /**
+     * Retrieves the OS-specific cryptographic Machine GUID from the Windows Registry.
+     * <p>
+     * This method specifically targets the Microsoft Cryptography registry key
+     * ({@code HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Cryptography\MachineGuid}).
+     * If an error occurs (such as executing on a non-Windows environment or due to
+     * insufficient privileges), the exception is safely ignored and an empty string
+     * is returned.
+     * </p>
+     *
+     * @return The normalized Machine GUID string if successful; otherwise, an empty string.
+     * @see #normalize(String)
+     */
+    private static String getMachineGuid() {
+
+        try {
+
+            return normalize(
+                    Advapi32Util.registryGetStringValue(
+                            WinReg.HKEY_LOCAL_MACHINE,
+                            "SOFTWARE\\Microsoft\\Cryptography",
+                            "MachineGuid"
+                    )
+            );
+
+        } catch (Exception ignored) {
+            return "";
+        }
+    }
+
+    /**
+     * Normalizes a given string value by trimming whitespace, handling nulls, and filtering out
+     * common placeholder or default system values.
+     * <p>
+     * This method ensures that generic or uninformative hardware identifier strings (such as
+     * "unknown", "none", or "to be filled by o.e.m.") are consistently treated as empty strings,
+     * preventing them from corrupting the uniqueness of a hardware fingerprint.
+     * </p>
+     *
+     * @param value The raw string identifier to be normalized.
+     * @return The cleaned, original string if it contains a valid identifier;
+     *         otherwise, an empty string {@code ""} if the input is null, empty,
+     *         or matches a known placeholder.
+     */
+    private static String normalize(String value) {
+
+        if (value == null)
+            return "";
+
+        value = value.trim();
+
+        if (value.isEmpty())
+            return "";
+
+        String lower = value.toLowerCase();
+
+        return switch (lower) {
+            case "unknown", "none", "system serial number", "to be filled by o.e.m.", "default string",
+                 "not applicable" -> "";
+            default -> value;
+        };
+    }
+
+    /**
+     * Generates an SHA-256 hash from raw string.
+     * The hash is irreversible and cannot be traced back to the user.
+     *
+     * @param raw           The raw string to hash.
+     * @return a hex string hash (64 chars)
+     */
+    public static String generateHash(String raw) {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] hash = digest.digest(raw.getBytes(StandardCharsets.UTF_8));
+            StringBuilder hexString = new StringBuilder();
+            for (byte b : hash) {
+                String hex = Integer.toHexString(0xff & b);
+                if (hex.length() == 1) hexString.append('0');
+                hexString.append(hex);
+            }
+            return hexString.toString();
+        } catch (NoSuchAlgorithmException e) {
+            throw new RuntimeException("SHA-256 not available", e);
+        }
     }
 }

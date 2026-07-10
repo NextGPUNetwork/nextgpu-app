@@ -1,10 +1,11 @@
 package ai.nextgpu.common.report;
 
+import ai.nextgpu.common.util.MapAttributeConverter;
 import com.fasterxml.jackson.databind.JsonNode;
 import ai.nextgpu.common.exception.ComponentException;
 import ai.nextgpu.common.model.BaseComponent;
 import ai.nextgpu.common.model.Computer;
-import ai.nextgpu.common.util.MapAttributeConverter;
+import ai.nextgpu.common.util.AnomalyDetailListAttributeConverter;
 import jakarta.persistence.*;
 import lombok.*;
 import org.hibernate.annotations.ColumnDefault;
@@ -12,9 +13,8 @@ import org.hibernate.annotations.Comment;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 
-import java.util.Collection;
-import java.util.HashMap;
-import java.util.Map;
+import java.util.*;
+import java.util.stream.Collectors;
 
 @Getter
 @Setter
@@ -35,10 +35,9 @@ public class AnomalyReport extends BaseReport {
     @Comment("The computer to generate the report for")
     private Computer computer;
 
-    @JdbcTypeCode(SqlTypes.JSON)
-    @Convert(converter = MapAttributeConverter.class)
+    @Convert(converter = AnomalyDetailListAttributeConverter.class)
     @Column(name = "anomaly", length = 5000)
-    private Map<Collection<BaseComponent>, ComponentException> componentExceptionMap;
+    private List<AnomalyDetail> anomalyDetails;
 
     public void exportToHtml(String filename) {
 
@@ -52,16 +51,20 @@ public class AnomalyReport extends BaseReport {
 
     }
 
-    public void updateExceptionMap(Collection<BaseComponent> component, ComponentException exception){
-        // Initialize map if null
-        if (componentExceptionMap == null) {
-            componentExceptionMap = new HashMap<Collection<BaseComponent>, ComponentException>();
+    public void addAnomaly(Collection<BaseComponent> components, ComponentException exception, String message) {
+        if (anomalyDetails == null) {
+            anomalyDetails = new ArrayList<>();
         }
-        componentExceptionMap.put(component, exception);
+        AnomalyDetail detail = new AnomalyDetail(
+                exception.getErrorCode().name(),
+                message,
+                components.isEmpty() ? "Unknown" : components.iterator().next().getClass().getSimpleName()
+        );
+        anomalyDetails.add(detail);
     }
 
     public boolean hasAnyException() {
-        return componentExceptionMap != null && !componentExceptionMap.isEmpty();
+        return anomalyDetails != null && !anomalyDetails.isEmpty();
     }
 
     @Override

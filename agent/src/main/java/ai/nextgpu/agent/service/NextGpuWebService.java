@@ -1,16 +1,19 @@
 package ai.nextgpu.agent.service;
 
+import ai.nextgpu.common.exception.ErrorCode;
+import ai.nextgpu.common.exception.ValidationException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import ai.nextgpu.agent.util.HttpUtil;
 import ai.nextgpu.common.dto.*;
 import ai.nextgpu.common.util.JsonUtil;
+import com.fasterxml.jackson.databind.JsonNode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
-import java.util.HashMap;
+import java.io.File;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -44,49 +47,113 @@ public class NextGpuWebService {
      * Retrieves the user profile associated with the specified wallet address.
      *
      * @param walletAddress the wallet address of the user whose profile is to be retrieved
-     * @return a {@code UserProfileDto} containing the user's profile information
+     * @return a {@code UserDto} containing the user's profile information
      * @throws Exception if an error occurs during the API communication or response deserialization
      */
-    public UserProfileDto getUserProfile(String walletAddress) throws Exception {
+    public UserDto getUserProfile(String walletAddress) throws Exception {
         String url = this.BASE_URL + "/users/" + walletAddress;
-        return httpUtil.get(url, UserProfileDto.class, true);
+        return httpUtil.get(url, UserDto.class, true);
+    }
+
+    public List<ProviderAttributeTypeDto> getProviderAttributeTypes() {
+        try {
+            String url = this.BASE_URL + "/providers/attributetypes";
+            return httpUtil.get(url, new TypeReference<List<ProviderAttributeTypeDto>>() {}, true);
+        } catch (Exception e) {
+            log.error("Error fetching provider attribute types: {}", e.getMessage());
+            return List.of();
+        }
     }
 
     /**
      * Verifies the given OTP (One-Time Password) against the specified wallet address.
      *
-     * @param walletAddress The wallet address to be verified.
      * @param otp The One-Time Password to be validated.
      * @return {@code true} if the OTP is successfully verified, {@code false} otherwise.
-     * @throws Exception If an error occurs during the HTTP request or response processing.
      */
-    public AuthResponseDto verifyOtp(String walletAddress, String otp) throws Exception {
-        String url = this.BASE_URL + "/users/otp/verify";
-        Map<String, String> body = new HashMap<>();
-        body.put("walletAddress", walletAddress);
-        body.put("otp", otp);
-        return httpUtil.post(url, body, AuthResponseDto.class, false);
+    public AuthResponseDto verifyOtp(String otp) {
+        try {
+            log.info("OTP {}",otp);
+            String url = this.BASE_URL + "/users/otp/access/verify";
+            return httpUtil.post(url, new OtpDto(otp), AuthResponseDto.class, false);
+        }
+        catch (Exception e) {
+            throw new ValidationException(ErrorCode.INVALID_OTP.getDescription(), ErrorCode.INVALID_OTP, e);
+        }
     }
 
     /* ************************************/
     /* ***** Computer API ENDPOINTS ***** */
     /* ************************************/
 
+    /**
+     * Retrieves detailed information about a computer with the specified UUID.
+     *
+     * @param uuid the unique identifier of the computer to be retrieved
+     * @return a {@code ComputerDto} containing the computer's details
+     * @throws Exception if an error occurs during the API communication or response deserialization
+     */
+    public ComputerDto getComputer(String uuid) throws Exception {
+        String url = this.BASE_URL + "/computers/" + uuid;
+        return httpUtil.get(url, ComputerDto.class, true);
+    }
+
+    /**
+     * Creates a new computer using the provided data transfer object.
+     *
+     * @param createDto the data transfer object containing the details required to create a computer
+     * @return a {@code ComputerDto} object representing the created computer
+     * @throws Exception if an error occurs during the API communication or response processing
+     */
     public ComputerDto createComputer(CreateComputerDto createDto) throws Exception {
-        String url = this.BASE_URL + "/computers";
-        return httpUtil.post(url, createDto, ComputerDto.class, true);
+        try {
+            String url = this.BASE_URL + "/computers";
+            return httpUtil.post(url, createDto, ComputerDto.class, true);
+        } catch (Exception e) {
+            log.error("Error creating computer: {}", e.getMessage());
+            throw new RuntimeException(e);
+        }
     }
 
-    /* **************************************************/
-    /* ** Benchmark and Audit API ENDPOINTS ** */
-    /* **************************************************/
+    public List<ComputerAttributeTypeDto> getComputerAttributeTypes() {
+        try {
+            String url = this.BASE_URL + "/computers/attributetypes";
+            return httpUtil.get(url, new TypeReference<List<ComputerAttributeTypeDto>>() {}, true);
+        } catch (Exception e) {
+            log.error("Error fetching computer attribute types: {}", e.getMessage());
+            return List.of();
+        }
+    }
 
+    /* **********************************************************/
+    /* ** Benchmark/Hardware Reports and Audit API ENDPOINTS ** */
+    /* **********************************************************/
+
+    /**
+     * Saves the hardware report by sending it to the specified endpoint.
+     *
+     * @param reportDto the data transfer object containing the hardware report details
+     * @throws Exception if an error occurs during the HTTP POST request or response processing
+     */
+    public void saveHardwareReport(HardwareReportDto reportDto) throws Exception {
+        String url = this.BASE_URL + "/reports/hardware";
+        httpUtil.post(url, reportDto, HardwareReportDto.class, true);
+    }
+
+    /**
+     * Saves the benchmark report by sending it to the specified endpoint.
+     *
+     * @param reportDto the data transfer object containing the benchmark report details
+     * @throws Exception if an error occurs during the HTTP POST request or response processing
+     */
     public void saveBenchmarkReport(BenchmarkReportDto reportDto) throws Exception {
-        String url = this.BASE_URL + "/reports/benchmark";
-
-        httpUtil.post(url, reportDto, BenchmarkReportDto.class, true);
+        try {
+            String url = this.BASE_URL + "/reports/benchmark";
+            httpUtil.post(url, reportDto, BenchmarkReportDto.class, true);
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
     }
-
 
     /**
      * Audits a given computer system for anomalies by sending its details to the anomaly reporting service.
@@ -94,14 +161,14 @@ public class NextGpuWebService {
      * @param computerDto the data transfer object containing detailed information about the computer to be audited
      * @return {@code true} if the audit passes successfully, {@code false} otherwise
      */
+    @SuppressWarnings("unchecked")
     public boolean auditComputerForAnomalies(ComputerDto computerDto) {
-        String url = this.BASE_URL + "/reports/anomaly";
+        String url = this.BASE_URL + "/reports/audit";
         try {
-            String responseMessage = httpUtil.post(url, computerDto, String.class, true);
-            return responseMessage.equals("Audit passed successfully.");
+            Map<String, String> responseMessage = httpUtil.post(url, computerDto, Map.class, true);
+            return responseMessage.get("audit_status").equals("Passed");
         } catch (Exception e) {
-            log.error("Anomaly audit failed for computer: {}", computerDto.getUuid(), e);
-            return false;
+            throw new RuntimeException("Computer audit failed.", e);
         }
     }
 
@@ -180,6 +247,22 @@ public class NextGpuWebService {
     public VersionCheckDto getLatestVersion() throws Exception {
         String url = this.VERSION_BASE_URL + "/api/installer";
         return httpUtil.get(url, VersionCheckDto.class, true);
+    }
+
+
+    public boolean isSttServiceAvailable() {
+        try {
+            String result = httpUtil.get("http://localhost:8177/health", null);
+            JsonNode json = JsonUtil.OBJECT_MAPPER.readTree(result);
+            return "ok".equalsIgnoreCase(json.path("status").asText());
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    public SttDto getTransformedString(File audioFile) throws Exception {
+        String url = "http://localhost:8177/v1/audio/transcriptions";
+        return httpUtil.postMultipart(url, Map.of("file", audioFile), SttDto.class, false);
     }
 
 

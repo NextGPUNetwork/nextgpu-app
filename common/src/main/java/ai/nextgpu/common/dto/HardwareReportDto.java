@@ -21,7 +21,7 @@ public class HardwareReportDto extends BaseReportDto {
     public static HardwareReportDto toDto(HardwareReport hardwareReport){
         return HardwareReportDto.builder()
                 .computerUuid(hardwareReport.getComputerUuid())
-                .reportContent(hardwareReport.getComputerUuid())
+                .reportContent(hardwareReport.getReportContent())
                 .uuid(hardwareReport.getUuid())
                 .dateCreated(hardwareReport.getDateCreated())
                 .description(hardwareReport.getDescription())

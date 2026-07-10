@@ -34,12 +34,13 @@ val Secondary05LightPurple = Color(251, 250, 255)
 val BackgroundGray = Color(248,248,248)
 val BackgroundDarkGray = Color(30,31,32)
 val HoverBackgroundDark = Color(54, 54, 54)
-val HoverBackgroundLight = Color(238, 238, 238)
+val HoverBackgroundLight = Color(241, 241, 241)
 val StrokeGray = Color(225, 225, 225)
 val StrokeLightGray = Color(50, 50, 50)
 val UrlBlue = Color(0,122,255)
 val StarGolden = Color(255, 191, 0)
 val OpenclawRed = Color(232, 27, 37)
+
 
 // Text Primitives
 val PrimaryText01 = Color(0,0,0,230)
@@ -88,12 +89,13 @@ val IconSizeSmall = 16.dp
 val IconSizeMedium = 20.dp
 val IconSizeStandard = 24.dp
 val IconSizeLarge = 32.dp
+val IconSizeExtraLarge = 48.dp
 
 // Component Dimensions
 val HeightButtonCompact = 32.dp
 val HeightButtonStandard = 36.dp
 val HeightInputMin = 40.dp
-val HeightTopBar = 52.dp
+val HeightTopBar = 48.dp
 val HeightFooter = 36.dp
 val HeightPrompt = 160.dp
 

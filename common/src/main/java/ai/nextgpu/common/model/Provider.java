@@ -6,6 +6,8 @@ import lombok.*;
 import org.hibernate.annotations.ColumnDefault;
 import org.hibernate.annotations.Comment;
 
+import java.util.Map;
+
 @Getter
 @Setter
 @Entity
@@ -26,7 +28,7 @@ public class Provider extends User {
     @Comment("Wallet address used to Sign-up")
     private String walletAddress;
 
-    @Column(nullable = false)
+    @Column(nullable = false, unique = true)
     @Comment("Email address is applicable only to Providers")
     private String providerEmail;
 
@@ -35,4 +37,15 @@ public class Provider extends User {
 
     @Comment("Country part of provider address")
     private String country;
+
+    @ElementCollection
+    @CollectionTable(
+            name = "provider_attribute",
+            joinColumns = @JoinColumn(name = "provider_id", nullable = false)
+    )
+    @MapKeyJoinColumn(name = "provider_attribute_id")
+    @Column(name = "attribute_value")
+    @Comment("This map collects various attributes of the Provider.")
+    @ToString.Exclude
+    private Map<ProviderAttributeType, String> providerAttributes;
 }

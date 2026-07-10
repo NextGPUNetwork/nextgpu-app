@@ -52,11 +52,12 @@ import java.time.format.DateTimeFormatter
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.zIndex
 import org.slf4j.LoggerFactory
+import org.springframework.core.env.getProperty
 
 private val logger = LoggerFactory.getLogger("ai.nextgpu.agent.ui.UnifiedSetupScreen")
 
 @OptIn(ExperimentalMaterialApi::class)
-enum class SetupPhase { OVERVIEW, INSTALLING, HARDWARE_SCAN, DONE }
+enum class SetupPhase { PATH_SELECTION, OVERVIEW, INSTALLING, HARDWARE_SCAN, DONE }
 
 @Composable
 fun UnifiedSetupScreen(
@@ -70,8 +71,16 @@ fun UnifiedSetupScreen(
         object {}.javaClass.classLoader.getResource("eula.html")?.toExternalForm()
     }
 
+    val environment = remember { springContext.environment }
+    val requiredSetupVersion = environment.getProperty<Int>("nextgpu.setup.required-version", 1)
+
     // --- WELCOME/EULA STATES ---
     var eulaAccepted by remember { mutableStateOf(false) }
+
+    var installProfile by remember {
+        mutableStateOf(service.getGlobalProperty(GlobalPropertyConfig.INSTALL_PROFILE)?.valueReference ?: "")
+    }
+    var selectedProfile by remember { mutableStateOf(installProfile) }
 
     // --- MAPPING DICTIONARY ---
     val stepDescriptions = remember {
@@ -115,9 +124,10 @@ fun UnifiedSetupScreen(
     var setupCompleted by remember { mutableStateOf(false) }
     var currentSetupStepKey by remember { mutableStateOf("hw_scan") }
     var setupLogs by remember { mutableStateOf("> System installation finished.\n> Awaiting manual hardware detection start...") }
-
+    var setupHalted by remember { mutableStateOf(false) }
+    var setupErrorMessage by remember { mutableStateOf<String?>(null) }
     // --- UI FLOW STATE EVALUATION ---
-    val isPhase2Active = isSetupRunning || setupCompleted
+    val isPhase2Active = isSetupRunning || setupCompleted || setupHalted
     val hasStarted = installState.progressPercentage > 0
     val isFailed = installState.status == "FAILED"
 
@@ -125,6 +135,7 @@ fun UnifiedSetupScreen(
         setupCompleted -> SetupPhase.DONE
         isPhase2Active -> SetupPhase.HARDWARE_SCAN
         isInstalling || hasStarted || isInstallCompleted -> SetupPhase.INSTALLING
+        installProfile.isBlank() -> SetupPhase.PATH_SELECTION
         else -> SetupPhase.OVERVIEW
     }
 
@@ -140,7 +151,7 @@ fun UnifiedSetupScreen(
         installState = optimisticState
 
         try {
-            OSUtil.startPrerequisitesInstallAsync(overwrite)
+            OSUtil.startPrerequisitesInstallAsync(overwrite, installProfile)
         } catch (e: Exception) {
             val failedState = OSUtil.InstallState()
             failedState.error = e.message
@@ -249,7 +260,9 @@ fun UnifiedSetupScreen(
 
                     if (distro.isNullOrBlank() || username.isNullOrBlank() || password.isNullOrBlank()) {
                         withContext(Dispatchers.Main) {
+                            setupHalted = true
                             isSetupRunning = false
+                            setupErrorMessage = "Authentication required. Please set your WSL password."
                             showPasswordDialog = true
                             pendingOverwriteChoice = false
                         }
@@ -258,10 +271,11 @@ fun UnifiedSetupScreen(
 
                     appendSetupLog("hw_scan")
                     delay(1000)
-                    val hwReport = service.generateComputerHardwareReport(false)
-                    File("reports").mkdirs()
-                    val timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd_HH-mm-ss"))
-                    hwReport.exportToHtml("reports/Hardware-Report-$timestamp.html")
+                    // TODO: Refactor the Setup page for AI Hub, because the hardware and benchmark reports generation is not needed/used.
+//                    val hwReport = service.generateComputerHardwareReport(false)
+//                    File("reports").mkdirs()
+//                    val timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd_HH-mm-ss"))
+//                    hwReport.exportToHtml("reports/Hardware-Report-$timestamp.html")
                     appendSetupLog("hw_scan", "Hardware detected and report generated.")
                     delay(1000)
 
@@ -290,9 +304,7 @@ fun UnifiedSetupScreen(
                     OSUtil.deleteInstallCredentials()
                     delay(500)
 
-                    val setupProp = service.getGlobalProperty(GlobalPropertyConfig.IS_SETUP_COMPLETED)
-                    setupProp.valueReference = "true"
-                    service.saveGlobalProperty(setupProp)
+                    service.saveSetupCompletionGlobalProperties(true, requiredSetupVersion)
 
                     delay(500)
 
@@ -305,8 +317,20 @@ fun UnifiedSetupScreen(
             } catch (e: Exception) {
                 logger.error("Unified setup workflow failed at step {}", currentSetupStepKey, e)
                 appendSetupLog(currentSetupStepKey, "Error: ${e.message}")
-                withContext(Dispatchers.Main) { isSetupRunning = false }
+                withContext(Dispatchers.Main) {
+                    setupHalted = true
+                    isSetupRunning = false
+                    setupErrorMessage = e.message ?: "An unknown error occurred during hardware detection."
+                }
             }
+        }
+    }
+
+    LaunchedEffect(currentPhase, isInstallCompleted, isInstalling, setupHalted, showPasswordDialog) {
+        // Prevent auto-triggering if we are halted or currently showing a dialog
+        if (currentPhase == SetupPhase.INSTALLING && isInstallCompleted && !isInstalling && !setupHalted && !showPasswordDialog) {
+            delay(500) // Small UX delay
+            isSetupRunning = true
         }
     }
 
@@ -399,12 +423,6 @@ fun UnifiedSetupScreen(
                     modifier = Modifier.padding(bottom = SpacingSmall)
                 )
 
-//                Text(
-//                    text = "NextGPU will inspect your hardware and recommend the best models your machine can run, so you can start unlocking the full power of your computer.",
-//                    style = MaterialTheme.typography.subtitle1,
-//                    color = NextGpuTheme.colors.textSecondary,
-//                    modifier = Modifier.width(350.dp)
-//                )
             }
         }
 
@@ -423,65 +441,6 @@ fun UnifiedSetupScreen(
                     .border(BorderWidth, NextGpuTheme.colors.border, RoundedCornerShape(RadiusLarge))
                     .padding(SpacingExtraLarge)
             ) {
-                // Header Area
-                if (currentPhase == SetupPhase.OVERVIEW) {
-                    Text(
-                        text = "Installation overview",
-                        style = MaterialTheme.typography.h5,
-                        color = NextGpuTheme.colors.textPrimary,
-                        modifier = Modifier.padding(bottom = SpacingSmall)
-                    )
-                    Text(
-                        text = "We will guide your device through hardware inspection, model selection, and installation setup.",
-                        style = MaterialTheme.typography.body2,
-                        color = NextGpuTheme.colors.textSecondary,
-                        modifier = Modifier.padding(bottom = SpacingLarge)
-                    )
-                } else {
-                    Text(
-                        text = "Installation progress",
-                        style = MaterialTheme.typography.h5,
-                        color = NextGpuTheme.colors.textPrimary,
-                        modifier = Modifier.padding(bottom = SpacingTiny)
-                    )
-                    val progressText = when (currentPhase) {
-                        // Once we hit Hardware Scan or Done, lock text at 100%
-                        SetupPhase.HARDWARE_SCAN, SetupPhase.DONE -> "100%"
-                        else -> "${installState.progressPercentage}%"
-                    }
-                    Text(
-                        text = progressText,
-                        style = MaterialTheme.typography.h3.copy(fontWeight = FontWeight.Bold),
-                        color = NextGpuTheme.colors.textPrimary,
-                        modifier = Modifier.padding(bottom = SpacingMedium)
-                    )
-
-                    // Linear Progress Bar
-                    val animatedProgress by animateFloatAsState(
-                        targetValue = when (currentPhase) {
-                            // Once we hit Hardware Scan or Done, lock bar at full width (1f)
-                            SetupPhase.HARDWARE_SCAN, SetupPhase.DONE -> 1f
-                            else -> installState.progressPercentage / 100f
-                        },
-                        animationSpec = tween(durationMillis = 500, easing = LinearEasing)
-                    )
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(12.dp)
-                            .background(NextGpuTheme.colors.border.copy(alpha = 0.5f), RoundedCornerShape(50))
-                            .clip(RoundedCornerShape(50))
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth(animatedProgress)
-                                .fillMaxHeight()
-                                .background(NextGpuTheme.colors.primaryVariant)
-                        )
-                    }
-                    Spacer(modifier = Modifier.height(SpacingLarge))
-                }
-
                 // Scrollable Steps Area
                 val isOverview = currentPhase == SetupPhase.OVERVIEW
                 var expandedStep by remember(currentPhase) {
@@ -495,120 +454,271 @@ fun UnifiedSetupScreen(
                     )
                 }
 
-                Column(
-                    modifier = Modifier
-                        .weight(1f)
-                        .verticalScroll(rememberScrollState()),
-                    verticalArrangement = if (isOverview) Arrangement.spacedBy(SpacingMedium) else Arrangement.Top
-                ) {
-                    // STEP 1: Installation
-                    val isStep1Active = currentPhase == SetupPhase.INSTALLING
-                    val isStep1Done = currentPhase == SetupPhase.HARDWARE_SCAN || currentPhase == SetupPhase.DONE
+                // Header Area
+                if (currentPhase == SetupPhase.PATH_SELECTION) {
+                    Text(
+                        text = "Choose your path",
+                        style = MaterialTheme.typography.h5,
+                        color = NextGpuTheme.colors.textPrimary,
+                        modifier = Modifier.padding(bottom = SpacingSmall)
+                    )
+                    Text(
+                        text = "Tell us how you'd like to use NextGPU today. We will run a quick hardware inspection and handle the backend installation for you.",
+                        style = MaterialTheme.typography.body2,
+                        color = NextGpuTheme.colors.textSecondary,
+                        modifier = Modifier.padding(bottom = SpacingLarge)
+                    )
 
-                    ExpandableStepCard(
-                        stepNumber = 1,
-                        title = "Installation & Setup",
-                        description = "We will install NextGPU, prepare the required runtime, and configure your local environment.",
-                        isActive = isStep1Active,
-                        isDone = isStep1Done,
-                        isExpanded = expandedStep == 1,
-                        isOverview = isOverview,
-                        iconPath = "icons/setup.svg",
-                        onToggleExpand = { expandedStep = if (expandedStep == 1) null else 1 }
-                    ) {
-                        // Logs View
-                        Column(
+                    Column(modifier = Modifier.weight(1f).padding(bottom = SpacingMedium, top = SpacingMedium)) {
+                        PathSelectionCard(
+                            title = "Earn as a Provider",
+                            description = "Rent out your idle GPU power. We'll automatically inspect your hardware, install the required runtime, and securely configure your local environment.",
+                            iconPath = "icons/provider.svg", // Replace with your actual icon
+                            modifier = Modifier.weight(1f),
+                            bottomRightImagePath = "images/provider-bg.svg",
+                            isSelected = selectedProfile == "provider",
+                            onClick = { selectedProfile = "provider" }
+                        )
+                        Spacer(modifier = Modifier.height(SpacingMedium))
+                        PathSelectionCard(
+                            title = "Explore the AI Hub",
+                            description = "Run models completely locally. Download LLMs, generate images, and build workflows, fully optimized for your machine's hardware capabilities.",
+                            iconPath = "icons/ai-hub.svg", // Replace with your actual icon
+                            modifier = Modifier.weight(1f),
+                            bottomRightImagePath = "images/ai-hub-bg.svg",
+                            isSelected = selectedProfile == "ai_hub",
+                            onClick = { selectedProfile = "ai_hub" }
+                        )
+
+                    }
+
+                } else {
+                    val overviewDescription = if (installProfile == "provider") {
+                        "We will guide your device through hardware inspection, driver selection, and installation setup."
+                    } else {
+                        "We will guide your device through hardware inspection, model selection, and installation setup."
+                    }
+                    if (currentPhase == SetupPhase.OVERVIEW) {
+                        Text(
+                            text = "Installation overview",
+                            style = MaterialTheme.typography.h5,
+                            color = NextGpuTheme.colors.textPrimary,
+                            modifier = Modifier.padding(bottom = SpacingSmall)
+                        )
+                        Text(
+                            text = overviewDescription,
+                            style = MaterialTheme.typography.body2,
+                            color = NextGpuTheme.colors.textSecondary,
+                            modifier = Modifier.padding(bottom = SpacingLarge)
+                        )
+                    } else {
+                        Text(
+                            text = "Installation progress",
+                            style = MaterialTheme.typography.h5,
+                            color = NextGpuTheme.colors.textPrimary,
+                            modifier = Modifier.padding(bottom = SpacingTiny)
+                        )
+                        val progressText = when (currentPhase) {
+                            // Once we hit Hardware Scan or Done, lock text at 100%
+                            SetupPhase.HARDWARE_SCAN, SetupPhase.DONE -> "100%"
+                            else -> "${installState.progressPercentage}%"
+                        }
+                        Text(
+                            text = progressText,
+                            style = MaterialTheme.typography.h3.copy(fontWeight = FontWeight.Bold),
+                            color = NextGpuTheme.colors.textPrimary,
+                            modifier = Modifier.padding(bottom = SpacingMedium)
+                        )
+
+                        // Linear Progress Bar
+                        val animatedProgress by animateFloatAsState(
+                            targetValue = when (currentPhase) {
+                                // Once we hit Hardware Scan or Done, lock bar at full width (1f)
+                                SetupPhase.HARDWARE_SCAN, SetupPhase.DONE -> 1f
+                                else -> installState.progressPercentage / 100f
+                            },
+                            animationSpec = tween(durationMillis = 500, easing = LinearEasing)
+                        )
+                        Box(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .height(200.dp)
-                                .background(NextGpuTheme.colors.surface.copy(alpha = 0.8f), RoundedCornerShape(RadiusLarge))
-                                .padding(SpacingLarge)
+                                .height(12.dp)
+                                .background(NextGpuTheme.colors.border.copy(alpha = 0.5f), RoundedCornerShape(50))
+                                .clip(RoundedCornerShape(50))
                         ) {
-                            val currentStepText = if (installState.currentStepName.isNotBlank()) {
-                                val description = stepDescriptions[installState.currentStepName] ?: installState.currentStepName
-                                "> $description"
-                            } else if (isInstallCompleted) {
-                                "> Setup complete"
-                            } else {
-                                "> Preparing..."
-                            }
-
-                            Text(
-                                text = currentStepText,
-                                style = MaterialTheme.typography.subtitle2.copy(fontWeight = FontWeight.Normal),
-                                color = NextGpuTheme.colors.textPrimary
-                            )
-
-                            Spacer(modifier = Modifier.height(SpacingMedium))
-
                             Box(
                                 modifier = Modifier
-                                    .weight(1f)
-                                    .fillMaxWidth()
-                                    .verticalScroll(terminalScrollState)
-                            ) {
-                                Text(
-                                    text = buildAnnotatedString {
-                                        val displayLogs = rawLogs.ifBlank { "" }
-                                        if (displayLogs.isNotBlank()) append(displayLogs)
-                                        else if (installState.status == "FAILED") append("Installation halted due to an error.\n")
-                                        else append("Waiting for process to start...")
+                                    .fillMaxWidth(animatedProgress)
+                                    .fillMaxHeight()
+                                    .background(NextGpuTheme.colors.primaryVariant)
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(SpacingLarge))
+                    }
 
-                                        if (installState.status == "FAILED" && !installState.error.isNullOrBlank()) {
-                                            withStyle(style = SpanStyle(color = Color.Red, fontWeight = FontWeight.Bold)) {
-                                                append("\n\n>>> CRITICAL ERROR: ${installState.error}")
-                                            }
-                                        }
-                                    },
-                                    style = MaterialTheme.typography.caption.copy(fontFamily = FontFamily.Monospace, fontSize = 11.sp),
-                                    color = NextGpuTheme.colors.textSecondary
+
+
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .verticalScroll(rememberScrollState()),
+                        verticalArrangement = if (isOverview) Arrangement.spacedBy(SpacingMedium) else Arrangement.Top
+                    ) {
+                        // STEP 1: Installation
+                        val isStep1Active = currentPhase == SetupPhase.INSTALLING
+                        val isStep1Done = currentPhase == SetupPhase.HARDWARE_SCAN || currentPhase == SetupPhase.DONE
+                        ExpandableStepCard(
+                            stepNumber = 1,
+                            title = "Installation & Setup",
+                            description = "We will install NextGPU, prepare the required runtime, and configure your local environment.",
+                            isActive = isStep1Active,
+                            isDone = isStep1Done,
+                            isExpanded = expandedStep == 1,
+                            isOverview = isOverview,
+                            iconPath = "icons/setup.svg",
+                            onToggleExpand = { expandedStep = if (expandedStep == 1) null else 1 }
+                        ) {
+                            // Logs View
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(200.dp)
+                                    .background(
+                                        NextGpuTheme.colors.surface.copy(alpha = 0.8f),
+                                        RoundedCornerShape(RadiusLarge)
+                                    )
+                                    .padding(SpacingLarge)
+                            ) {
+                                val currentStepText = if (installState.currentStepName.isNotBlank()) {
+                                    val description =
+                                        stepDescriptions[installState.currentStepName] ?: installState.currentStepName
+                                    "> $description"
+                                } else if (isInstallCompleted) {
+                                    "> Setup complete"
+                                } else {
+                                    "> Preparing..."
+                                }
+
+                                Text(
+                                    text = currentStepText,
+                                    style = MaterialTheme.typography.subtitle2.copy(fontWeight = FontWeight.Normal),
+                                    color = NextGpuTheme.colors.textPrimary
                                 )
+
+                                Spacer(modifier = Modifier.height(SpacingMedium))
+
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .fillMaxWidth()
+                                        .verticalScroll(terminalScrollState)
+                                ) {
+                                    Text(
+                                        text = buildAnnotatedString {
+                                            val displayLogs = rawLogs.ifBlank { "" }
+                                            if (displayLogs.isNotBlank()) append(displayLogs)
+                                            else if (installState.status == "FAILED") append("Installation halted due to an error.\n")
+                                            else append("Waiting for process to start...")
+
+                                            if (installState.status == "FAILED" && !installState.error.isNullOrBlank()) {
+                                                withStyle(
+                                                    style = SpanStyle(
+                                                        color = Color.Red,
+                                                        fontWeight = FontWeight.Bold
+                                                    )
+                                                ) {
+                                                    append("\n\n>>> CRITICAL ERROR: ${installState.error}")
+                                                }
+                                            }
+                                        },
+                                        style = MaterialTheme.typography.caption.copy(
+                                            fontFamily = FontFamily.Monospace,
+                                            fontSize = 11.sp
+                                        ),
+                                        color = NextGpuTheme.colors.textSecondary
+                                    )
+                                }
                             }
                         }
-                    }
 
-                    if (!isOverview) {
-                        Divider(color = NextGpuTheme.colors.border, modifier = Modifier.padding(vertical = SpacingSmall))
-                    }
-
-                    // STEP 2: Hardware Inspection
-                    val isStep2Active = currentPhase == SetupPhase.HARDWARE_SCAN
-                    val isStep2Done = currentPhase == SetupPhase.DONE
-                    ExpandableStepCard(
-                        stepNumber = 2,
-                        title = "Hardware Inspection",
-                        description = "We'll scan your GPU, CPU, memory, and storage to understand what your machine can support.",
-                        isActive = isStep2Active,
-                        isDone = isStep2Done,
-                        isExpanded = expandedStep == 2,
-                        isOverview = isOverview,
-                        iconPath = "icons/hardware-scan.svg",
-                        onToggleExpand = { expandedStep = if (expandedStep == 2) null else 2 }
-                    ) {
-                        Column(modifier = Modifier.fillMaxWidth().padding(horizontal = SpacingMedium)) {
-                            SubTaskRow("Hardware Detection", currentSetupStepKey == "hw_scan", currentSetupStepKey != "hw_scan" && setupLogs.contains("Hardware detected"))
-                            SubTaskRow("Operating Environment Setup", currentSetupStepKey == "env_config", setupLogs.contains("Validating AI Agent Containers"))
-                            SubTaskRow("Benchmarking", currentSetupStepKey.startsWith("bench_"), setupCompleted)
+                        if (!isOverview) {
+                            Divider(
+                                color = NextGpuTheme.colors.border,
+                                modifier = Modifier.padding(vertical = SpacingSmall)
+                            )
                         }
-                    }
 
-                    if (!isOverview) {
-                        Divider(color = NextGpuTheme.colors.border, modifier = Modifier.padding(vertical = SpacingSmall))
-                    }
+                        // STEP 2: Hardware Inspection
+                        val isStep2Active = currentPhase == SetupPhase.HARDWARE_SCAN
+                        val isStep2Done = currentPhase == SetupPhase.DONE
+                        ExpandableStepCard(
+                            stepNumber = 2,
+                            title = "Hardware Inspection",
+                            description = "We'll scan your GPU, CPU, memory, and storage to understand what your machine can support.",
+                            isActive = isStep2Active,
+                            isDone = isStep2Done,
+                            isExpanded = expandedStep == 2,
+                            isOverview = isOverview,
+                            iconPath = "icons/hardware-scan.svg",
+                            onToggleExpand = { expandedStep = if (expandedStep == 2) null else 2 }
+                        ) {
+                            Column(modifier = Modifier.fillMaxWidth().padding(horizontal = SpacingMedium)) {
+                                SubTaskRow(
+                                    "Hardware Detection",
+                                    currentSetupStepKey == "hw_scan" && !setupHalted,
+                                    currentSetupStepKey != "hw_scan" && setupLogs.contains("Hardware detected")
+                                )
+                                SubTaskRow(
+                                    "Operating Environment Setup",
+                                    currentSetupStepKey == "env_config" && !setupHalted,
+                                    setupLogs.contains("Validating AI Agent Containers")
+                                )
+                                SubTaskRow("Benchmarking", currentSetupStepKey.startsWith("bench_") && !setupHalted, setupCompleted)
+                                if (setupHalted && setupErrorMessage != null) {
+                                    Spacer(modifier = Modifier.height(SpacingMedium))
+                                    Text(
+                                        text = "Error: $setupErrorMessage",
+                                        color = NextGpuTheme.colors.error,
+                                        style = MaterialTheme.typography.caption.copy(fontWeight = FontWeight.Medium),
+                                        modifier = Modifier.padding(top = SpacingSmall)
+                                    )
+                                }
+                            }
+                        }
 
-                    // STEP 3: Launch
-                    val isStep3Active = currentPhase == SetupPhase.DONE
-                    ExpandableStepCard(
-                        stepNumber = 3,
-                        title = "Launch",
-                        description = "We'll recommend the best AI models for your hardware and the tasks you want to run.",
-                        isActive = false,
-                        isDone = isStep3Active,
-                        isExpanded = expandedStep == 3,
-                        isOverview = isOverview,
-                        iconPath = "icons/launch.svg",
-                        onToggleExpand = { expandedStep = if (expandedStep == 3) null else 3 }
-                    ) {}
+                        if (!isOverview) {
+                            Divider(
+                                color = NextGpuTheme.colors.border,
+                                modifier = Modifier.padding(vertical = SpacingSmall)
+                            )
+                        }
+
+                        // STEP 3: Launch
+                        val isStep3Active = currentPhase == SetupPhase.DONE
+
+                        val launchDescription = if (installProfile == "provider") {
+                            "Connect your device to the network and start earning rewards for your GPU compute power."
+                        } else {
+                            "We'll recommend the best AI models for your hardware and the tasks you want to run."
+                        }
+
+                        val launchIcon = if (installProfile == "provider") {
+                            "icons/provider-network.svg"
+                        } else {
+                            "icons/launch.svg"
+                        }
+                        ExpandableStepCard(
+                            stepNumber = 3,
+                            title = "Launch",
+                            description = launchDescription,
+                            isActive = false,
+                            isDone = isStep3Active,
+                            isExpanded = expandedStep == 3,
+                            isOverview = isOverview,
+                            iconPath = launchIcon,
+                            onToggleExpand = { expandedStep = if (expandedStep == 3) null else 3 }
+                        ) {}
+                    }
                 }
 
                 if (currentPhase == SetupPhase.OVERVIEW || isFailed) {
@@ -619,7 +729,11 @@ fun UnifiedSetupScreen(
                         CustomRoundedCheckbox(checked = eulaAccepted, onCheckedChange = { eulaAccepted = it })
                         Spacer(modifier = Modifier.width(SpacingSmall))
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(text = "I accept the ", color = NextGpuTheme.colors.textPrimary, style = MaterialTheme.typography.subtitle2)
+                            Text(
+                                text = "I accept the ",
+                                color = NextGpuTheme.colors.textPrimary,
+                                style = MaterialTheme.typography.subtitle2
+                            )
                             Text(
                                 text = "End-User License Agreement",
                                 style = MaterialTheme.typography.subtitle2,
@@ -634,6 +748,7 @@ fun UnifiedSetupScreen(
 
                 // UPDATED: Dynamic Button text and enabled logic safely handles paused/completed states
                 val buttonText = when (currentPhase) {
+                    SetupPhase.PATH_SELECTION -> "Continue ->"
                     SetupPhase.OVERVIEW -> "Get started ->"
                     SetupPhase.INSTALLING -> when {
                         isFailed -> "Retry Installation"
@@ -641,14 +756,16 @@ fun UnifiedSetupScreen(
                         !isInstalling && hasStarted -> "Continue Installation" // Resumes a paused installation
                         else -> "Installing..."
                     }
-                    SetupPhase.HARDWARE_SCAN -> "Detecting Hardware..."
+
+                    SetupPhase.HARDWARE_SCAN -> if (setupHalted) "Retry Hardware Scan" else "Detecting Hardware..."
                     SetupPhase.DONE -> "Continue"
                 }
 
                 val isButtonEnabled = when (currentPhase) {
+                    SetupPhase.PATH_SELECTION -> selectedProfile.isNotBlank()
                     SetupPhase.OVERVIEW -> eulaAccepted
                     SetupPhase.INSTALLING -> isFailed || !isInstalling
-                    SetupPhase.HARDWARE_SCAN -> false
+                    SetupPhase.HARDWARE_SCAN -> setupHalted
                     SetupPhase.DONE -> true
                 }
 
@@ -658,6 +775,13 @@ fun UnifiedSetupScreen(
                     modifier = Modifier.fillMaxWidth().height(48.dp),
                     onClick = {
                         when (currentPhase) {
+                            SetupPhase.PATH_SELECTION -> {
+                                installProfile = selectedProfile
+                                scope.launch(Dispatchers.IO) {
+                                    service.updateInstallProfile(selectedProfile)
+                                }
+                            }
+
                             SetupPhase.DONE -> onProceed()
                             SetupPhase.OVERVIEW -> {
                                 val eulaProperty = service.getGlobalProperty(GlobalPropertyConfig.IS_EULA_ACCEPTED)
@@ -675,8 +799,10 @@ fun UnifiedSetupScreen(
                                     }
                                 }
                             }
+
                             SetupPhase.INSTALLING -> {
                                 if (isInstallCompleted) {
+                                    setupHalted = false
                                     isSetupRunning = true
                                 } else {
                                     scope.launch {
@@ -689,7 +815,14 @@ fun UnifiedSetupScreen(
                                     }
                                 }
                             }
-                            SetupPhase.HARDWARE_SCAN -> {}
+
+                            SetupPhase.HARDWARE_SCAN -> {
+                                if (setupHalted) {
+                                    setupHalted = false
+                                    setupErrorMessage = null
+                                    isSetupRunning = true
+                                }
+                            }
                         }
                     },
                     backgroundColor = NextGpuTheme.colors.primary,
@@ -761,56 +894,68 @@ fun UnifiedSetupScreen(
                         }
                     )
                 }
-                AnimatedVisibility(visible = expandedStep == null && currentPhase != SetupPhase.OVERVIEW) {
+                AnimatedVisibility(visible = expandedStep == null && currentPhase != SetupPhase.OVERVIEW && currentPhase != SetupPhase.PATH_SELECTION) {
                     Column {
                         Spacer(modifier = Modifier.height(SpacingLarge))
                         HelpfulTipsCard()
                     }
-                }
+
             }
         }
 
-        // --- OVERLAY DIALOGS ---
-        if (showOverwriteDialog) {
-            Dialog(onDismissRequest = { showOverwriteDialog = false }) {
-                Surface(
-                    shape = RoundedCornerShape(RadiusLarge),
-                    color = NextGpuTheme.colors.background,
-                    contentColor = NextGpuTheme.colors.textPrimary,
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = SpacingLarge)
-                ) {
-                    Column(modifier = Modifier.padding(SpacingExtraLarge)) {
-                        Text("Resume Previous Setup?", style = NextGpuTheme.typography.h5, modifier = Modifier.padding(bottom = SpacingSmall))
-                        Text(
-                            "We detected an existing NextGPU environment. You can continue from where you left off, or wipe it and start a completely fresh installation.",
-                            style = NextGpuTheme.typography.body1,
-                            color = NextGpuTheme.colors.textSecondary
-                        )
-                        Spacer(modifier = Modifier.height(SpacingExtraLarge))
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
-                            CustomButton(
-                                text = "Start Fresh",
-                                onClick = {
-                                    showOverwriteDialog = false
-                                    pendingOverwriteChoice = true
-                                    if (!OSUtil.hasInstallCredentials()) showPasswordDialog = true else startInstallation(true)
-                                },
-                                backgroundColor = Color.Transparent,
-                                textColor = NextGpuTheme.colors.textPrimary,
-                                elevation = false
+
+            // --- OVERLAY DIALOGS ---
+            if (showOverwriteDialog) {
+                Dialog(onDismissRequest = { showOverwriteDialog = false }) {
+                    Surface(
+                        shape = RoundedCornerShape(RadiusLarge),
+                        color = NextGpuTheme.colors.background,
+                        contentColor = NextGpuTheme.colors.textPrimary,
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = SpacingLarge)
+                    ) {
+                        Column(modifier = Modifier.padding(SpacingExtraLarge)) {
+                            Text(
+                                "Resume Previous Setup?",
+                                style = NextGpuTheme.typography.h5,
+                                modifier = Modifier.padding(bottom = SpacingSmall)
                             )
-                            Spacer(modifier = Modifier.width(SpacingSmall))
-                            CustomButton(
-                                text = "Continue Installation",
-                                onClick = {
-                                    showOverwriteDialog = false
-                                    pendingOverwriteChoice = false
-                                    if (!OSUtil.hasInstallCredentials()) showPasswordDialog = true else startInstallation(false)
-                                },
-                                backgroundColor = NextGpuTheme.colors.primary,
-                                textColor = Primary03Black,
-                                elevation = false
+                            Text(
+                                "We detected an existing NextGPU environment. You can continue from where you left off, or wipe it and start a completely fresh installation.",
+                                style = NextGpuTheme.typography.body1,
+                                color = NextGpuTheme.colors.textSecondary
                             )
+                            Spacer(modifier = Modifier.height(SpacingExtraLarge))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.End,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                CustomButton(
+                                    text = "Start Fresh",
+                                    onClick = {
+                                        showOverwriteDialog = false
+                                        pendingOverwriteChoice = true
+                                        if (!OSUtil.hasInstallCredentials()) showPasswordDialog =
+                                            true else startInstallation(true)
+                                    },
+                                    backgroundColor = Color.Transparent,
+                                    textColor = NextGpuTheme.colors.textPrimary,
+                                    elevation = false
+                                )
+                                Spacer(modifier = Modifier.width(SpacingSmall))
+                                CustomButton(
+                                    text = "Continue Installation",
+                                    onClick = {
+                                        showOverwriteDialog = false
+                                        pendingOverwriteChoice = false
+                                        if (!OSUtil.hasInstallCredentials()) showPasswordDialog =
+                                            true else startInstallation(false)
+                                    },
+                                    backgroundColor = NextGpuTheme.colors.primary,
+                                    textColor = Primary03Black,
+                                    elevation = false
+                                )
+                            }
                         }
                     }
                 }
@@ -909,7 +1054,12 @@ fun UnifiedSetupScreen(
                                                 passProp.valueReference = userPasswordInput
                                                 service.saveGlobalProperty(passProp)
                                                 withContext(Dispatchers.Main) {
-                                                    if (isInstallCompleted) isSetupRunning = true else startInstallation(pendingOverwriteChoice)
+                                                    if (isInstallCompleted) {
+                                                        setupHalted = false
+                                                        isSetupRunning = true
+                                                    } else {
+                                                        startInstallation(pendingOverwriteChoice)
+                                                    }
                                                 }
                                             } catch (e: Exception) {
                                                 withContext(Dispatchers.Main) {
@@ -1201,6 +1351,79 @@ fun HelpfulTipsCard(modifier: Modifier = Modifier) {
                         colorFilter = ColorFilter.tint(NextGpuTheme.colors.textPrimary)
                     )
                 }
+            }
+        }
+    }
+}
+
+@Composable
+fun PathSelectionCard(
+    title: String,
+    description: String,
+    iconPath: String,
+    isSelected: Boolean,
+    modifier: Modifier = Modifier,
+    bottomRightImagePath: String? = null, // The background SVG
+    onClick: () -> Unit
+) {
+    val borderColor = if (isSelected) NextGpuTheme.colors.primaryVariant else Color.Unspecified
+    val iconColor = if (isSelected) NextGpuTheme.colors.primaryVariant else NextGpuTheme.colors.textPrimary
+
+    // 1. The outer Box handles the shape and clicks.
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .background(NextGpuTheme.colors.secondary, RoundedCornerShape(RadiusLarge))
+            .border(BorderWidth, borderColor, RoundedCornerShape(RadiusLarge))
+            .clip(RoundedCornerShape(RadiusLarge))
+            .clickable { onClick() }
+    ) {
+
+        // 2. The Background Image (ABSOLUTE POSITIONING)
+        if (bottomRightImagePath != null) {
+            Box(modifier = Modifier.matchParentSize()) {
+                Image(
+                    painter = painterResource(bottomRightImagePath),
+                    contentDescription = null,
+                    modifier = Modifier.align(Alignment.BottomEnd)
+                )
+            }
+        }
+
+        // 3. The Main Content
+        Row(
+            modifier = Modifier
+                .fillMaxSize() // <--- FIX: This forces the Row to take up the full height of the expanded card
+                .padding(SpacingHuge),
+            verticalAlignment = Alignment.CenterVertically // <--- Because it fills max size, this now centers perfectly
+        ) {
+            Box(
+                modifier = Modifier.size(IconSizeExtraLarge),
+                contentAlignment = Alignment.Center
+            ) {
+                Image(
+                    painter = painterResource(iconPath),
+                    contentDescription = null,
+                    modifier = Modifier.size(IconSizeExtraLarge),
+                    colorFilter = ColorFilter.tint(iconColor),
+                )
+            }
+
+            Spacer(modifier = Modifier.width(SpacingHuge))
+
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.h6.copy(fontWeight = FontWeight.Medium),
+                    color = NextGpuTheme.colors.textPrimary
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = description,
+                    style = MaterialTheme.typography.body2,
+                    color = NextGpuTheme.colors.textSecondary,
+                    lineHeight = 20.sp
+                )
             }
         }
     }

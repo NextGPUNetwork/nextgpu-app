@@ -68,7 +68,7 @@ public class NetworkDevice extends BaseComponent{
             throw new ComponentException(
                     ErrorCode.MAX_TOLERANCE_VIOLATION.getDescription(),
                     ErrorCode.MAX_TOLERANCE_VIOLATION,
-                    new IllegalArgumentException("NetworkDevice speed exceeds maximum allowed tolerance: expected="+this.speed+"actual="+otherNetworkDevice.speed)
+                    new IllegalArgumentException("NetworkDevice speed exceeds maximum allowed tolerance: expected="+this.speed+" actual="+otherNetworkDevice.speed)
             );
     }
 }

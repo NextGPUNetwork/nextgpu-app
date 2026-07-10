@@ -24,6 +24,9 @@ public class ComputerDto extends BaseDto {
     @NotNull(message = "Computer type is required")
     private ComputerType type;
 
+    @NotNull(message = "Hardware fingerprint is required")
+    private String hardwareFingerprint;
+
     @NotEmpty(message = "At least one CPU is required")
     private Collection<CpuDto> cpus;
 
@@ -57,6 +60,7 @@ public class ComputerDto extends BaseDto {
                 .dateUpdated(computer.getDateUpdated())
                 .voidReason(computer.getVoidReason())
                 .type(computer.getType())
+                .hardwareFingerprint(computer.getHardwareFingerprint())
                 .operatingSystem(computer.getOperatingSystem())
                 .cpus(toDtos(computer.getCpus(), CpuDto::toDto))
                 .gpus(toDtos(computer.getGpus(), GpuDto::toDto))
@@ -114,6 +118,9 @@ public class ComputerDto extends BaseDto {
 
     public static Map<String, String> toComputerAttributeDtosMap(
             Map<ComputerAttributeType, String> attributeMap) {
+        if (attributeMap == null || attributeMap.isEmpty()) {
+            return Collections.emptyMap();
+        }
 
         // Create new map
         Map<String , String> result = new HashMap<>();

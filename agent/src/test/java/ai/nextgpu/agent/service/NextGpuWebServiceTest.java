@@ -53,15 +53,15 @@ class NextGpuWebServiceTest {
 
     @Test
     void getUserProfile_callsGetWithAuth() throws Exception {
-        UserProfileDto profile = new UserProfileDto();
+        UserDto profile = new UserDto();
         profile.setWalletAddress("0x123");
         
-        when(httpUtil.get(anyString(), eq(UserProfileDto.class), eq(true))).thenReturn(profile);
-        
-        UserProfileDto result = service.getUserProfile("0x123");
+        when(httpUtil.get(anyString(), eq(UserDto.class), eq(true))).thenReturn(profile);
+
+        UserDto result = service.getUserProfile("0x123");
         
         assertEquals("0x123", result.getWalletAddress());
-        verify(httpUtil).get(contains("/users/0x123"), eq(UserProfileDto.class), eq(true));
+        verify(httpUtil).get(contains("/users/0x123"), eq(UserDto.class), eq(true));
     }
 
     @Test

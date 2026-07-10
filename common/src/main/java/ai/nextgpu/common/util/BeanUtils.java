@@ -39,8 +39,8 @@ public class BeanUtils {
      *         and the same corresponding values as in the input map, or null if the input map is null.
      */
     public static Map<String, String> toStringKeyMap(Map<ComputerAttributeType, String> attributes){
-        if (attributes == null) {
-            return null;
+        if (attributes == null || attributes.isEmpty()) {
+            return Collections.emptyMap();
         }
 
         Map<String, String> stringKeyMap = new HashMap<>();

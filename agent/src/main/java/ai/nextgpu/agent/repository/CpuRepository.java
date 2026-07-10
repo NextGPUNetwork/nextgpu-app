@@ -1,7 +1,7 @@
 package ai.nextgpu.agent.repository;
 
 import ai.nextgpu.common.model.Cpu;
-import ai.nextgpu.common.repository.BaseComponentRepository;
+import ai.nextgpu.common.repository.PostgresComponentRepository;
 import org.springframework.stereotype.Repository;
 
 /**
@@ -9,5 +9,5 @@ import org.springframework.stereotype.Repository;
  * Provides methods to perform CRUD operations on Cpu entities.
  */
 @Repository
-public interface CpuRepository extends BaseComponentRepository<Cpu, Long> {
+public interface CpuRepository extends PostgresComponentRepository<Cpu, Long> {
 }

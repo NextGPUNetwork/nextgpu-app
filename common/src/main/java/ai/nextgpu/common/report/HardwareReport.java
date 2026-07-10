@@ -34,19 +34,17 @@ import java.util.stream.Collectors;
  * It leverages Bootstrap for styling the HTML output.
  */
 @Setter
+@Getter
 @Entity
 @Table(name = "hardware_report")
 public class HardwareReport extends BaseReport {
 
     @Id
-    @Getter
     @GeneratedValue(strategy = GenerationType.SEQUENCE, generator = "hardware_report_seq_gen")
     @SequenceGenerator(name = "hardware_report_seq_gen", sequenceName = "hardware_report_seq", allocationSize = 1)
     private Long id;
 
     @Column(name = "computer_uuid", length = 38)
-    @Setter
-    @Getter
     private String computerUuid;
 
     @Lob

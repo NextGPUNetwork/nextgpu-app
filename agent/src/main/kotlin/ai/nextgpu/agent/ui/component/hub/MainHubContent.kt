@@ -3,8 +3,13 @@ package ai.nextgpu.agent.ui.component.hub
 import ai.nextgpu.agent.model.ChatMessage
 import ai.nextgpu.agent.model.PromptModel
 import ai.nextgpu.agent.ui.theme.MaxContentWidth
+import ai.nextgpu.agent.ui.theme.NextGpuTheme
+import ai.nextgpu.agent.ui.theme.RadiusExtraLarge
+import ai.nextgpu.agent.ui.theme.RadiusLarge
+import ai.nextgpu.agent.ui.theme.RadiusMedium
 import ai.nextgpu.agent.ui.theme.SpacingLarge
 import androidx.compose.foundation.ScrollState
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -13,10 +18,12 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.input.TextFieldValue
 
 @Composable
@@ -60,10 +67,16 @@ fun MainHubContent(
     onSettings: (tabId: String) -> Unit,
     currentMode: PromptMode,
     onModeChange: (PromptMode) -> Unit,
+    sessionId: String?,
 ) {
     val aiService = remember { Services.aiService }
+    val audioRecorderService = remember { Services.audioRecorderService }
+    val nextGpuWebService = remember { Services.nextGpuWebService }
 
-    Column(modifier = Modifier.fillMaxHeight().fillMaxWidth()) {
+    Column(modifier = Modifier.fillMaxHeight()
+        .fillMaxWidth()
+        .clip(RoundedCornerShape(topStart = RadiusMedium))
+        .background(NextGpuTheme.colors.background)) {
         TopNavigation(
             isSidebarCollapsed = isSidebarCollapsed,
             onToggleSidebar = onToggleSidebar,
@@ -122,6 +135,7 @@ fun MainHubContent(
         }
 
         PromptRegion(
+            sessionId = sessionId,
             promptText = promptText,
             onPromptChange = onPromptChange,
             onSendPrompt = onSendPrompt,
@@ -132,6 +146,14 @@ fun MainHubContent(
             onOpenModelSettings = { onSettings("models") },
             currentMode = currentMode,
             onModeChange = onModeChange,
+            audioRecorderService = audioRecorderService,
+            onCheckSttHealth = {
+                nextGpuWebService.isSttServiceAvailable()
+            },
+            onTranscribeAudio = { file ->
+                val result = nextGpuWebService.getTransformedString(file)
+                result.text
+            }
         )
     }
 }

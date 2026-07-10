@@ -329,7 +329,7 @@ CREATE TABLE IF NOT EXISTS provider
     description    VARCHAR(255),
     uuid           VARCHAR(38)                 NOT NULL,
     wallet_address VARCHAR(255)                NOT NULL,
-    provider_email VARCHAR(255)                NOT NULL,
+    provider_email VARCHAR(255)                NOT NULL UNIQUE,
     city           VARCHAR(255),
     country        VARCHAR(255),
     CONSTRAINT pk_provider PRIMARY KEY (id)

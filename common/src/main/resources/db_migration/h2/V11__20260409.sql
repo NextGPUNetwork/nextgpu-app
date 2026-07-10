@@ -1,20 +1,20 @@
-CREATE SEQUENCE IF NOT EXISTS ai_model_seq START WITH 1 INCREMENT BY 1;
+﻿CREATE SEQUENCE IF NOT EXISTS ai_model_seq START WITH 1 INCREMENT BY 1;
 
 CREATE TABLE ai_model
 (
-    id             BIGINT DEFAULT nextval('ai_model_seq') NOT NULL,
-    uuid           VARCHAR(38)                            NOT NULL,
-    registry       VARCHAR(50),
-    model          VARCHAR(50)                            NOT NULL,
-    full_name      VARCHAR(255),
-    description    VARCHAR(255),
-    tasks          TEXT,
-    required_vram  INTEGER,
-    vram_unit      VARCHAR(50),
-    size           INTEGER,
-    size_unit      VARCHAR(50),
-    type           VARCHAR(255),
-    context_tokens INTEGER,
+    id                    BIGINT DEFAULT NEXT VALUE FOR ai_model_seq NOT NULL,
+    uuid                  VARCHAR(38)                            NOT NULL,
+    registry              VARCHAR(50),
+    model                 VARCHAR(50)                            NOT NULL,
+    full_name             VARCHAR(255),
+    description           VARCHAR(255),
+    tasks                 TEXT,
+    required_vram         INTEGER,
+    vram_unit             VARCHAR(50),
+    size                  INTEGER,
+    size_unit             VARCHAR(50),
+    type                  VARCHAR(255),
+    context_tokens        INTEGER,
     CONSTRAINT pk_ai_model PRIMARY KEY (id)
 );
 COMMENT ON COLUMN ai_model.id IS 'Primary key';

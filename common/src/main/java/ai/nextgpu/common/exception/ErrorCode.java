@@ -48,7 +48,8 @@ public enum ErrorCode{
     COMPONENT_NOT_FOUND(1600, HttpStatus.Series.CLIENT_ERROR, "Component not found"),
     AI_SERVICE_ERROR(1700, HttpStatus.Series.SERVER_ERROR, "AI service error"),
     AI_SERVICE_DISABLED(1701, HttpStatus.Series.SERVER_ERROR, "AI service disabled"),
-    DATA_PERSISTENCE_ERROR(1800, HttpStatus.Series.SERVER_ERROR, "Data persistence error");
+    DATA_PERSISTENCE_ERROR(1800, HttpStatus.Series.SERVER_ERROR, "Data persistence error"),
+    InsufficientStakedBalance(1900, HttpStatus.Series.CLIENT_ERROR, "Insufficient Staked balance, required to become a Provider error");
 
     private final int code;
     private final HttpStatus.Series series;

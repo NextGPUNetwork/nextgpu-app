@@ -28,6 +28,13 @@ if (Test-Path $nextGpuDir) {
     Write-Host "Local app data removed"
 }
 
+# Remove Roaming AppData
+$roamingNextGpuDir = Join-Path $env:APPDATA "NextGPU"
+if (Test-Path $roamingNextGpuDir) {
+    Remove-Item -Recurse -Force $roamingNextGpuDir
+    Write-Host "Roaming AppData removed"
+}
+
 $wslDataDir = Join-Path $env:LOCALAPPDATA "WSL\nextgpu"
 if (Test-Path $wslDataDir) {
     Remove-Item -Recurse -Force $wslDataDir

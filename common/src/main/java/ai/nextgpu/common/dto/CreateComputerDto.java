@@ -27,6 +27,9 @@ public class CreateComputerDto {
 
     @NotNull(message = "Computer type is required")
     private ComputerType type;
+
+    @NotNull(message = "Hardware fingerprint is required")
+    private String hardwareFingerprint;
     
     @NotEmpty(message = "At least one GPU is required")
     private Collection<GpuDto> gpus;

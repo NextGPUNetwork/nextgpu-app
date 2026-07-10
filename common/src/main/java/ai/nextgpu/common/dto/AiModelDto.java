@@ -5,6 +5,7 @@ import ai.nextgpu.common.model.ComfyUiModelFile;
 import ai.nextgpu.common.model.AiModelRegistry;
 import ai.nextgpu.common.model.StorageUnit;
 import ai.nextgpu.common.util.JsonUtil;
+import com.fasterxml.jackson.core.type.TypeReference;
 import lombok.*;
 
 import java.util.Arrays;
@@ -49,7 +50,7 @@ public class AiModelDto {
                 .scheduler(dto.getScheduler())
                 .files(JsonUtil.OBJECT_MAPPER.convertValue(
                         dto.getFiles(),
-                        new com.fasterxml.jackson.core.type.TypeReference<List<ComfyUiModelFile>>() {
+                        new TypeReference<List<ComfyUiModelFile>>() {
                         }
                 ))
                 .build();
@@ -76,7 +77,7 @@ public class AiModelDto {
         dto.setScheduler(model.getScheduler());
         dto.setFiles(JsonUtil.OBJECT_MAPPER.convertValue(
                 model.getFiles(),
-                new com.fasterxml.jackson.core.type.TypeReference<List<ComfyUiModelFile>>() {}
+                new TypeReference<List<ComfyUiModelFile>>() {}
         ));
         return dto;
     }

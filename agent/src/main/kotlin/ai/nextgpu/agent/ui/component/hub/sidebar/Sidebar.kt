@@ -3,10 +3,13 @@ package ai.nextgpu.agent.ui.component.hub.sidebar
 import ai.nextgpu.agent.model.ChatSession
 import ai.nextgpu.agent.model.Project
 import ai.nextgpu.agent.service.NextGpuAiService
+import ai.nextgpu.agent.ui.AppPortal
 import ai.nextgpu.agent.ui.component.CustomButton
+import ai.nextgpu.agent.ui.component.IconPosition
 import ai.nextgpu.agent.ui.component.popup.settings.model.SettingsViewModel
 import ai.nextgpu.agent.ui.theme.*
 import androidx.compose.animation.*
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -16,9 +19,11 @@ import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -52,7 +57,8 @@ fun Sidebar(
     onSettings: () -> Unit,
     onSessionSelected: (ChatSession) -> Unit,
     onNewChat: () -> Unit,
-    activeSessionId: Long? = null
+    activeSessionId: Long? = null,
+    onProvider: () -> Unit,
 ) {
 
     var coroutineScope = rememberCoroutineScope()
@@ -112,98 +118,14 @@ fun Sidebar(
         selectedSessionIds = emptySet()
     }
     val borderColor = NextGpuTheme.colors.border
+    val sidebarWidth by animateDpAsState(targetValue = if (isCollapsed) SidebarCollapsedWidth else SidebarWidth)
     Column(
         modifier = Modifier
-            .width(if (isCollapsed) SidebarCollapsedWidth else SidebarWidth) // THEME
+            .width(sidebarWidth)
             .fillMaxHeight()
             .background(NextGpuTheme.colors.backgroundVariant)
-            // Custom draw modifier for a performant right-side border
-            .drawWithContent {
-                drawContent()
-                val strokeWidth = BorderWidth.toPx()
-                val x = size.width - strokeWidth / 2
-                drawLine(
-                    color = borderColor,
-                    start = Offset(x, 0f),
-                    end = Offset(x, size.height),
-                    strokeWidth = strokeWidth
-                )
-            }
             .padding(SpacingMedium)
     ) {
-        // --- Header Section ---
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = if (isCollapsed) Arrangement.Center else Arrangement.SpaceBetween,
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(bottom = SpacingLarge)
-                .height(HeightButtonCompact) // THEME: 32.dp
-        ) {
-            if (isCollapsed) {
-                // Collapsed: Show Logo by default, swap to Expand Icon on hover
-                val interactionSource = remember { MutableInteractionSource() }
-                val isHovered by interactionSource.collectIsHoveredAsState()
-
-                Box(
-                    modifier = Modifier
-                        .size(IconSizeStandard) // 24dp
-                        .clip(RoundedCornerShape(RadiusSmall)) // Rounded corners on hover
-                        .hoverable(interactionSource)
-                        .background(
-                            if (isHovered) NextGpuTheme.colors.hoverBackground else Color.Transparent
-                        )
-                        .clickable(
-                            interactionSource = interactionSource,
-                            indication = ripple(bounded = true),
-                            onClick = onToggleSidebar
-                        ),
-                    contentAlignment = Alignment.Center
-                ) {
-                    if (isHovered) {
-                        // Expand Icon on Hover
-                        Icon(
-                            painter = painterResource("icons/sidebar-right.svg"),
-                            contentDescription = "Expand Sidebar",
-                            tint = NextGpuTheme.colors.textSecondary,
-                            modifier = Modifier.size(IconSizeSidebar) // 18dp
-                        )
-                    } else {
-                        // Logo Default
-                        val logoResource = "images/nextgpu-primary-logo.svg"
-
-
-                        Icon(
-                            painter = painterResource(logoResource),
-                            contentDescription = "NextGPU Logo",
-                            tint = Color.Unspecified,
-                            modifier = Modifier.size(IconSizeStandard) // 24dp
-                        )
-                    }
-                }
-            } else {
-                // Expanded: Full Logo + Toggle Button
-
-                val logoResource = if (NextGpuTheme.colors.isDark) {
-                    "images/nextgpu-secondary-logo-full.svg"
-                } else {
-                    "images/nextgpu-primary-logo-full.svg"
-                }
-                Icon(
-                    painter = painterResource(logoResource),
-                    contentDescription = "NextGPU Logo",
-                    tint = Color.Unspecified,
-                    modifier = Modifier.height(IconSizeStandard)
-                )
-
-                // Close Button (Using helper for consistent rounded hover)
-                SidebarIconButton(
-                    icon = "sidebar-left",
-                    onClick = onToggleSidebar,
-                    tint = NextGpuTheme.colors.textSecondary,
-                )
-            }
-        }
 
         // --- Actions Section (New Chat, Search, Projects) ---
         val actionsAlpha = if (isSelectionMode) 0.5f else 1f
@@ -402,10 +324,9 @@ fun Sidebar(
             }
 
             // TODO: Instead of two statements, do SpacingTiny x 2
-            Spacer(modifier = Modifier.height(SpacingTiny))
-            Spacer(modifier = Modifier.height(SpacingTiny))
+            Spacer(modifier = Modifier.height(SpacingTiny * 2))
 
-            // ðŸš¨ CRITICAL FIX: Calculate lists OUTSIDE the LazyColumn so Compose
+            // CRITICAL FIX: Calculate lists OUTSIDE the LazyColumn so Compose
             // tracks the state read and structurally rebuilds the list on 0->1 transitions!
             val starredChats = recentChats.filter { it.starred == true }
             val unstarredChats = recentChats.filter { it.starred != true }
@@ -598,10 +519,6 @@ fun Sidebar(
             Spacer(modifier = Modifier.weight(1f))
         }
 
-        if (!isCollapsed) {
-            Spacer(modifier = Modifier.height(SpacingMedium))
-            ProviderPromoCard()
-        }
 
         Spacer(modifier = Modifier.height(SpacingMedium))
 
@@ -643,80 +560,103 @@ fun Sidebar(
 
         SidebarItem(icon = "setting-alternate", label = "Settings", isCollapsed = isCollapsed, onClick = onSettings)
 
+        CustomButton(
+            text = if (isCollapsed) "" else "Switch to Provider",
+            icon = painterResource("icons/switch.svg"),
+            iconPosition = IconPosition.Start,
+            onClick = onProvider,
+            // Keep the exact same dimensions as SidebarItem at all times
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(HeightListItem)
+                .padding(vertical = SpacingMicro),
+            // Keep the exact same shape as SidebarItem at all times
+            shape = CircleShape,
+            backgroundColor = NextGpuTheme.colors.primaryVariant.copy(alpha = 0.1f),
+            textColor = NextGpuTheme.colors.primaryVariant,
+            elevation = false,
+            textStyle = MaterialTheme.typography.subtitle2,
+            iconSize = IconSizeSidebar,
+            iconOnlySize = IconSizeSidebar,
+            contentPadding = if (isCollapsed) PaddingValues(0.dp) else PaddingValues(start = RadiusSmall, end = SpacingSmall)
+        )
+
         // --- Delete All confirmation dialog ---
         if (showDeleteAllDialog) {
-            Dialog(onDismissRequest = { showDeleteAllDialog = false }) {
-                Surface(
-                    shape = RoundedCornerShape(RadiusMedium),
-                    color = NextGpuTheme.colors.surface, // Matches the setup dialogs
-                    contentColor = NextGpuTheme.colors.textPrimary,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = SpacingLarge)
-                ) {
-                    Column(
-                        modifier = Modifier.padding(
-                            top = SpacingDialog,
-                            start = SpacingDialog,
-                            end = SpacingDialog,
-                            bottom = SpacingLarge // Tighter bottom padding to balance button height
-                        )
+            AppPortal {
+                Dialog(onDismissRequest = { showDeleteAllDialog = false }) {
+                    Surface(
+                        shape = RoundedCornerShape(RadiusMedium),
+                        color = NextGpuTheme.colors.surface, // Matches the setup dialogs
+                        contentColor = NextGpuTheme.colors.textPrimary,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = SpacingLarge)
                     ) {
-                        // TITLE
-                        Text(
-                            text = "Delete all local chats?",
-                            style = NextGpuTheme.typography.h6,
-                            color = NextGpuTheme.colors.textPrimary, // Keeps your warning color
-                            modifier = Modifier.padding(bottom = SpacingSmall)
-                        )
-
-                        // BODY TEXT
-                        Text(
-                            text = "You are about to delete all chat history stored on your computer. This is your private data and not shared with anyone.\n\nThis operation cannot be undone. Are you sure?",
-                            style = MaterialTheme.typography.body2,
-                            color = NextGpuTheme.colors.textSecondary
-                        )
-
-                        Spacer(modifier = Modifier.height(SpacingLarge))
-
-                        // ACTION BUTTONS
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.End,
-                            verticalAlignment = Alignment.CenterVertically
+                        Column(
+                            modifier = Modifier.padding(
+                                top = SpacingDialog,
+                                start = SpacingDialog,
+                                end = SpacingDialog,
+                                bottom = SpacingLarge // Tighter bottom padding to balance button height
+                            )
                         ) {
-                            // CANCEL BUTTON
-                            CustomButton(
-                                text = "Cancel",
-                                onClick = { showDeleteAllDialog = false },
-                                backgroundColor = Color.Transparent,
-                                textColor = NextGpuTheme.colors.textSecondary,
-                                hoverBackgroundColor = NextGpuTheme.colors.background.copy(0.35f),
-                                elevation = false,
-
+                            // TITLE
+                            Text(
+                                text = "Delete all local chats?",
+                                style = NextGpuTheme.typography.h6,
+                                color = NextGpuTheme.colors.textPrimary, // Keeps your warning color
+                                modifier = Modifier.padding(bottom = SpacingSmall)
                             )
 
-                            Spacer(modifier = Modifier.width(SpacingSmall))
+                            // BODY TEXT
+                            Text(
+                                text = "You are about to delete all chat history stored on your computer. This is your private data and not shared with anyone.\n\nThis operation cannot be undone. Are you sure?",
+                                style = MaterialTheme.typography.body2,
+                                color = NextGpuTheme.colors.textSecondary
+                            )
 
-                            // DESTRUCTIVE ACTION BUTTON
-                            CustomButton(
-                                text = "Yes, Delete All",
-                                onClick = {
-                                    showDeleteAllDialog = false
-                                    coroutineScope.launch(Dispatchers.IO) {
-                                        recentChats.forEach { recentChat -> aiService.deleteChatSession(recentChat) }
-                                        withContext(Dispatchers.Main) {
-                                            recentChats = emptyList()
-                                            refreshChats()
-                                            onNewChat()
+                            Spacer(modifier = Modifier.height(SpacingLarge))
+
+                            // ACTION BUTTONS
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.End,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                // CANCEL BUTTON
+                                CustomButton(
+                                    text = "Cancel",
+                                    onClick = { showDeleteAllDialog = false },
+                                    backgroundColor = Color.Transparent,
+                                    textColor = NextGpuTheme.colors.textSecondary,
+                                    hoverBackgroundColor = NextGpuTheme.colors.background.copy(0.35f),
+                                    elevation = false,
+
+                                    )
+
+                                Spacer(modifier = Modifier.width(SpacingSmall))
+
+                                // DESTRUCTIVE ACTION BUTTON
+                                CustomButton(
+                                    text = "Yes, Delete All",
+                                    onClick = {
+                                        showDeleteAllDialog = false
+                                        coroutineScope.launch(Dispatchers.IO) {
+                                            recentChats.forEach { recentChat -> aiService.deleteChatSession(recentChat) }
+                                            withContext(Dispatchers.Main) {
+                                                recentChats = emptyList()
+                                                refreshChats()
+                                                onNewChat()
+                                            }
                                         }
-                                    }
-                                },
-                                backgroundColor = ErrorText, // Destructive red background
-                                textColor = Primary01White,
-                                elevation = false,
+                                    },
+                                    backgroundColor = ErrorText, // Destructive red background
+                                    textColor = Primary01White,
+                                    elevation = false,
 
-                            )
+                                    )
+                            }
                         }
                     }
                 }
@@ -725,286 +665,301 @@ fun Sidebar(
 
         // --- Rename Chat Dialog ---
         if (showRenameDialog && sessionToRename != null) {
-            RenameDialog(
-                title = "Rename Chat",
-                initialName = newSessionName,
-                onDismiss = {
-                    showRenameDialog = false
-                    sessionToRename = null
-                },
-                onConfirm = { updatedName ->
-                    val session = sessionToRename
-                    if (session != null && updatedName.isNotBlank()) {
-                        coroutineScope.launch(Dispatchers.IO) {
-                            aiService.renameChatSession(session, updatedName.trim())
-                            withContext(Dispatchers.Main) {
-                                refreshChats()
-                                showRenameDialog = false
-                                sessionToRename = null
+            AppPortal {
+                RenameDialog(
+                    title = "Rename Chat",
+                    initialName = newSessionName,
+                    onDismiss = {
+                        showRenameDialog = false
+                        sessionToRename = null
+                    },
+                    onConfirm = { updatedName ->
+                        val session = sessionToRename
+                        if (session != null && updatedName.isNotBlank()) {
+                            coroutineScope.launch(Dispatchers.IO) {
+                                aiService.renameChatSession(session, updatedName.trim())
+                                withContext(Dispatchers.Main) {
+                                    refreshChats()
+                                    showRenameDialog = false
+                                    sessionToRename = null
+                                }
                             }
                         }
                     }
-                }
-            )
+                )
+            }
+
         }
 
 
         // --- Create Project Dialog ---
         if (showCreateProjectDialog) {
-            ProjectDialog(
-                title = "Create New Project",
-                confirmLabel = "Create",
-                name = projectNameField,
-                onNameChange = { projectNameField = it },
-                instructions = projectInstructionsField,
-                onInstructionsChange = { projectInstructionsField = it },
-                onConfirm = {
-                    coroutineScope.launch(Dispatchers.IO) {
-                        aiService.createProject(projectNameField.trim(), projectInstructionsField.trim())
-                        withContext(Dispatchers.Main) {
-                            refreshChats()
-                            showCreateProjectDialog = false
+            AppPortal {
+                ProjectDialog(
+                    title = "Create New Project",
+                    confirmLabel = "Create",
+                    name = projectNameField,
+                    onNameChange = { projectNameField = it },
+                    instructions = projectInstructionsField,
+                    onInstructionsChange = { projectInstructionsField = it },
+                    onConfirm = {
+                        coroutineScope.launch(Dispatchers.IO) {
+                            aiService.createProject(projectNameField.trim(), projectInstructionsField.trim())
+                            withContext(Dispatchers.Main) {
+                                refreshChats()
+                                showCreateProjectDialog = false
+                            }
                         }
-                    }
-                },
-                onDismiss = { showCreateProjectDialog = false }
-            )
+                    },
+                    onDismiss = { showCreateProjectDialog = false }
+                )
+            }
+
         }
 
         // --- Rename Project Dialog ---
         if (showRenameProjectDialog && projectToManage != null) {
-            ProjectDialog(
-                title = "Update Project",
-                confirmLabel = "Update",
-                name = projectNameField,
-                onNameChange = { projectNameField = it },
-                instructions = projectInstructionsField,
-                onInstructionsChange = { projectInstructionsField = it },
-                onDismiss = { showRenameProjectDialog = false },
-                onConfirm = {
-                    val project = projectToManage
-                    if (project != null) {
-                        coroutineScope.launch(Dispatchers.IO) {
-                            project.name = projectNameField.trim()
-                            project.instructions = projectInstructionsField.trim()
-                            aiService.updateProject(project)
-                            withContext(Dispatchers.Main) {
-                                refreshChats()
-                                showRenameProjectDialog = false
-                                projectToManage = null
+            AppPortal {
+                ProjectDialog(
+                    title = "Update Project",
+                    confirmLabel = "Update",
+                    name = projectNameField,
+                    onNameChange = { projectNameField = it },
+                    instructions = projectInstructionsField,
+                    onInstructionsChange = { projectInstructionsField = it },
+                    onDismiss = { showRenameProjectDialog = false },
+                    onConfirm = {
+                        val project = projectToManage
+                        if (project != null) {
+                            coroutineScope.launch(Dispatchers.IO) {
+                                project.name = projectNameField.trim()
+                                project.instructions = projectInstructionsField.trim()
+                                aiService.updateProject(project)
+                                withContext(Dispatchers.Main) {
+                                    refreshChats()
+                                    showRenameProjectDialog = false
+                                    projectToManage = null
+                                }
                             }
                         }
                     }
-                }
-            )
+                )
+            }
+
         }
 
         // --- Delete Project Dialog ---
         if (showDeleteProjectDialog && projectToManage != null) {
-            Dialog(onDismissRequest = { showDeleteProjectDialog = false }) {
-                Surface(
-                    shape = RoundedCornerShape(RadiusMedium),
-                    color = NextGpuTheme.colors.surface, // Fixes the hardcoded white background!
-                    contentColor = NextGpuTheme.colors.textPrimary,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = SpacingExtraLarge)
-                ) {
-                    Column(
-                        modifier = Modifier.padding(
-                            top = SpacingDialog,
-                            start = SpacingDialog,
-                            end = SpacingDialog,
-                            bottom = SpacingLarge// Tighter bottom padding to balance button height
-                        )
+            AppPortal {
+                Dialog(onDismissRequest = { showDeleteProjectDialog = false }) {
+                    Surface(
+                        shape = RoundedCornerShape(RadiusMedium),
+                        color = NextGpuTheme.colors.surface, // Fixes the hardcoded white background!
+                        contentColor = NextGpuTheme.colors.textPrimary,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = SpacingExtraLarge)
                     ) {
-                        // TITLE
-                        Text(
-                            text = "Delete project?",
-                            style = NextGpuTheme.typography.h6,
-                            color = WarnText, // Retains the warning color for destructive actions
-                            modifier = Modifier.padding(bottom = SpacingSmall)
-                        )
-
-                        // BODY TEXT
-                        Text(
-                            text = "You are about to delete this project. It will NOT delete the chats inside it. However, custom instructions attached with this project will be lost.\n\nThis operation cannot be undone. Are you sure?",
-                            style = MaterialTheme.typography.body2,
-                            color = NextGpuTheme.colors.textSecondary
-                        )
-
-                        Spacer(modifier = Modifier.height(SpacingLarge))
-
-                        // ACTION BUTTONS
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.End,
-                            verticalAlignment = Alignment.CenterVertically
+                        Column(
+                            modifier = Modifier.padding(
+                                top = SpacingDialog,
+                                start = SpacingDialog,
+                                end = SpacingDialog,
+                                bottom = SpacingLarge// Tighter bottom padding to balance button height
+                            )
                         ) {
-                            // CANCEL
-                            CustomButton(
-                                text = "Cancel",
-                                onClick = { showDeleteProjectDialog = false },
-                                backgroundColor = Color.Transparent,
-                                textColor = NextGpuTheme.colors.textSecondary,
-                                hoverBackgroundColor = NextGpuTheme.colors.background.copy(0.35f),
-                                elevation = false,
-
+                            // TITLE
+                            Text(
+                                text = "Delete project?",
+                                style = NextGpuTheme.typography.h6,
+                                color = WarnText, // Retains the warning color for destructive actions
+                                modifier = Modifier.padding(bottom = SpacingSmall)
                             )
 
-                            Spacer(modifier = Modifier.width(SpacingSmall))
+                            // BODY TEXT
+                            Text(
+                                text = "You are about to delete this project. It will NOT delete the chats inside it. However, custom instructions attached with this project will be lost.\n\nThis operation cannot be undone. Are you sure?",
+                                style = MaterialTheme.typography.body2,
+                                color = NextGpuTheme.colors.textSecondary
+                            )
 
-                            // DELETE (Destructive Action)
-                            CustomButton(
-                                text = "Delete",
-                                onClick = {
-                                    val project = projectToManage
-                                    if (project != null) {
-                                        coroutineScope.launch(Dispatchers.IO) {
-                                            aiService.deleteProject(project)
-                                            withContext(Dispatchers.Main) {
-                                                refreshChats()
-                                                showDeleteProjectDialog = false
-                                                projectToManage = null
+                            Spacer(modifier = Modifier.height(SpacingLarge))
+
+                            // ACTION BUTTONS
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.End,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                // CANCEL
+                                CustomButton(
+                                    text = "Cancel",
+                                    onClick = { showDeleteProjectDialog = false },
+                                    backgroundColor = Color.Transparent,
+                                    textColor = NextGpuTheme.colors.textSecondary,
+                                    hoverBackgroundColor = NextGpuTheme.colors.background.copy(0.35f),
+                                    elevation = false,
+
+                                    )
+
+                                Spacer(modifier = Modifier.width(SpacingSmall))
+
+                                // DELETE (Destructive Action)
+                                CustomButton(
+                                    text = "Delete",
+                                    onClick = {
+                                        val project = projectToManage
+                                        if (project != null) {
+                                            coroutineScope.launch(Dispatchers.IO) {
+                                                aiService.deleteProject(project)
+                                                withContext(Dispatchers.Main) {
+                                                    refreshChats()
+                                                    showDeleteProjectDialog = false
+                                                    projectToManage = null
+                                                }
                                             }
                                         }
-                                    }
-                                },
-                                backgroundColor = ErrorText, // Red destructive background
-                                textColor = Primary01White,
-                                elevation = false, // Kept flat like your original design
+                                    },
+                                    backgroundColor = ErrorText, // Red destructive background
+                                    textColor = Primary01White,
+                                    elevation = false, // Kept flat like your original design
 
-                            )
+                                )
+                            }
                         }
                     }
                 }
             }
+
         }
 
         // --- Select Project Dialog ---
         if (showSelectProjectDialog && chatSessionsToMove.isNotEmpty()) {
-            Dialog(
-                onDismissRequest = {
-                    showSelectProjectDialog = false
-                    chatSessionsToMove = emptyList()
-                }
-            ) {
-                Surface(
-                    shape = RoundedCornerShape(RadiusMedium),
-                    color = NextGpuTheme.colors.surface, // Automatically handles Light/Dark mode
-                    contentColor = NextGpuTheme.colors.textPrimary,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = SpacingLarge)
+            AppPortal {
+                Dialog(
+                    onDismissRequest = {
+                        showSelectProjectDialog = false
+                        chatSessionsToMove = emptyList()
+                    }
                 ) {
-                    Column(
-                        modifier = Modifier.padding(
-                            top = SpacingDialog,
-                            start = SpacingDialog,
-                            end = SpacingDialog,
-                            bottom = SpacingLarge // Tighter bottom padding to balance button height
-                        )
+                    Surface(
+                        shape = RoundedCornerShape(RadiusMedium),
+                        color = NextGpuTheme.colors.surface, // Automatically handles Light/Dark mode
+                        contentColor = NextGpuTheme.colors.textPrimary,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = SpacingLarge)
                     ) {
-                        // TITLE
-                        Text(
-                            text = "Select Project",
-                            style = NextGpuTheme.typography.h6,
-                            color = NextGpuTheme.colors.textPrimary,
-                            modifier = Modifier.padding(bottom = SpacingSmall)
-                        )
-
-                        // INSTRUCTION TEXT
-                        Text(
-                            text = "Choose a project to move the selected chat(s) to:",
-                            style = MaterialTheme.typography.body2,
-                            color = NextGpuTheme.colors.textSecondary, // Themed color
-                            modifier = Modifier.padding(bottom = SpacingMedium)
-                        )
-
-                        // SCROLLABLE PROJECT LIST
-                        LazyColumn(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .heightIn(max = 300.dp), // Keeps the list from growing infinitely
-                            verticalArrangement = Arrangement.spacedBy(SpacingMicro)
+                        Column(
+                            modifier = Modifier.padding(
+                                top = SpacingDialog,
+                                start = SpacingDialog,
+                                end = SpacingDialog,
+                                bottom = SpacingLarge // Tighter bottom padding to balance button height
+                            )
                         ) {
-                            itemsIndexed(projects) { _, project ->
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clip(RoundedCornerShape(RadiusSmall))
-                                        .clickable {
-                                            coroutineScope.launch(Dispatchers.IO) {
-                                                chatSessionsToMove.forEach { session ->
-                                                    aiService.addChatSessionToProject(session, project)
-                                                }
-                                                withContext(Dispatchers.Main) {
-                                                    exitSelectionMode()
-                                                    refreshChats()
-                                                    showSelectProjectDialog = false
-                                                    chatSessionsToMove = emptyList()
+                            // TITLE
+                            Text(
+                                text = "Select Project",
+                                style = NextGpuTheme.typography.h6,
+                                color = NextGpuTheme.colors.textPrimary,
+                                modifier = Modifier.padding(bottom = SpacingSmall)
+                            )
+
+                            // INSTRUCTION TEXT
+                            Text(
+                                text = "Choose a project to move the selected chat(s) to:",
+                                style = MaterialTheme.typography.body2,
+                                color = NextGpuTheme.colors.textSecondary, // Themed color
+                                modifier = Modifier.padding(bottom = SpacingMedium)
+                            )
+
+                            // SCROLLABLE PROJECT LIST
+                            LazyColumn(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(max = 300.dp), // Keeps the list from growing infinitely
+                                verticalArrangement = Arrangement.spacedBy(SpacingMicro)
+                            ) {
+                                itemsIndexed(projects) { _, project ->
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clip(RoundedCornerShape(RadiusSmall))
+                                            .clickable {
+                                                coroutineScope.launch(Dispatchers.IO) {
+                                                    chatSessionsToMove.forEach { session ->
+                                                        aiService.addChatSessionToProject(session, project)
+                                                    }
+                                                    withContext(Dispatchers.Main) {
+                                                        exitSelectionMode()
+                                                        refreshChats()
+                                                        showSelectProjectDialog = false
+                                                        chatSessionsToMove = emptyList()
+                                                    }
                                                 }
                                             }
-                                        }
-                                        .padding(SpacingSmall),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    // ICON
-                                    Icon(
-                                        painter = painterResource("icons/collection.svg"),
-                                        contentDescription = null,
-                                        tint = NextGpuTheme.colors.textSecondary, // Themed icon tint
-                                        modifier = Modifier.size(IconSizeMedium)
-                                    )
+                                            .padding(SpacingSmall),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        // ICON
+                                        Icon(
+                                            painter = painterResource("icons/collection.svg"),
+                                            contentDescription = null,
+                                            tint = NextGpuTheme.colors.textSecondary, // Themed icon tint
+                                            modifier = Modifier.size(IconSizeMedium)
+                                        )
 
-                                    Spacer(modifier = Modifier.width(SpacingSmall))
+                                        Spacer(modifier = Modifier.width(SpacingSmall))
 
-                                    // PROJECT NAME
-                                    Text(
-                                        text = project.name ?: "Unnamed Project",
-                                        style = MaterialTheme.typography.body2,
-                                        color = NextGpuTheme.colors.textPrimary
-                                    )
+                                        // PROJECT NAME
+                                        Text(
+                                            text = project.name ?: "Unnamed Project",
+                                            style = MaterialTheme.typography.body2,
+                                            color = NextGpuTheme.colors.textPrimary
+                                        )
+                                    }
+                                }
+
+                                // EMPTY STATE
+                                if (projects.isEmpty()) {
+                                    item {
+                                        Text(
+                                            text = "No projects found. Create a project first.",
+                                            style = MaterialTheme.typography.body2,
+                                            color = NextGpuTheme.colors.textSecondary,
+                                            modifier = Modifier.padding(SpacingSmall)
+                                        )
+                                    }
                                 }
                             }
 
-                            // EMPTY STATE
-                            if (projects.isEmpty()) {
-                                item {
-                                    Text(
-                                        text = "No projects found. Create a project first.",
-                                        style = MaterialTheme.typography.body2,
-                                        color = NextGpuTheme.colors.textSecondary,
-                                        modifier = Modifier.padding(SpacingSmall)
+                            Spacer(modifier = Modifier.height(SpacingLarge))
+
+                            // ACTION BUTTONS (Only Cancel needed here, as clicking a row confirms)
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.End,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                CustomButton(
+                                    text = "Cancel",
+                                    onClick = {
+                                        showSelectProjectDialog = false
+                                        chatSessionsToMove = emptyList()
+                                    },
+                                    backgroundColor = Color.Transparent,
+                                    hoverBackgroundColor = NextGpuTheme.colors.background.copy(0.35f),
+                                    textColor = NextGpuTheme.colors.textSecondary,
+                                    elevation = false,
+
                                     )
-                                }
                             }
-                        }
-
-                        Spacer(modifier = Modifier.height(SpacingLarge))
-
-                        // ACTION BUTTONS (Only Cancel needed here, as clicking a row confirms)
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.End,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            CustomButton(
-                                text = "Cancel",
-                                onClick = {
-                                    showSelectProjectDialog = false
-                                    chatSessionsToMove = emptyList()
-                                },
-                                backgroundColor = Color.Transparent,
-                                hoverBackgroundColor = NextGpuTheme.colors.background.copy(0.35f),
-                                textColor = NextGpuTheme.colors.textSecondary,
-                                elevation = false,
-
-                            )
                         }
                     }
                 }
             }
+
         }
     }
 }

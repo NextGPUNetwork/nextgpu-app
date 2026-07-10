@@ -15,7 +15,6 @@ import ai.nextgpu.common.util.StringUtil;
 import lombok.Getter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Lazy;
@@ -30,6 +29,7 @@ import java.security.GeneralSecurityException;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.*;
+import java.util.function.Consumer;
 
 /**
  * Service class responsible for handling operations related to GPU agents, WebSocket communication,
@@ -43,8 +43,10 @@ public class NextGpuAgentService {
 
     private static final Logger log = LoggerFactory.getLogger(NextGpuAgentService.class);
 
+    // TODO: Remove this field and use the hasValidJwt() method instead
     private boolean isLoggedIn = false;
 
+    // TODO: Remove this field and use the LOGIN_WALLET property instead
     private String loginWallet = null;
 
     private final ObjectMapper objectMapper = JsonUtil.OBJECT_MAPPER;
@@ -61,6 +63,7 @@ public class NextGpuAgentService {
     private final HardwareUtil hardwareUtil;
     private final ComputerService computerService;
     private final AnalyticsService analyticsService;
+    private final ProviderService providerService;
 
     @Getter
     private WebSocketStompClient webSocketClient;
@@ -74,13 +77,14 @@ public class NextGpuAgentService {
             DataService dataService,
             @Lazy WebSocketMessageService webSocketMessageService,
             @Lazy HardwareUtil hardwareUtil,
-            ComputerService computerService, AnalyticsService analyticsService) {
+            ComputerService computerService, AnalyticsService analyticsService, ProviderService providerService) {
         this.globalPropertyRepository = globalPropertyRepository;
         this.dataService = dataService;
         this.webSocketMessageService = webSocketMessageService;
         this.hardwareUtil = hardwareUtil;
         this.computerService = computerService;
         this.analyticsService = analyticsService;
+        this.providerService = providerService;
         checkEnvironment();
     }
 
@@ -94,6 +98,21 @@ public class NextGpuAgentService {
             if (setupComplete != null && setupComplete.getValue() == Boolean.TRUE) {
                 // WSL startup is now handled asynchronously in NextGpuAgentApplication to avoid blocking Spring startup
                 log.info("WSL startup will be handled by the application UI flow.");
+            }
+            // Identify WSL IP address and store in respective global property
+            GlobalProperty distroProperty = getGlobalProperty(GlobalPropertyConfig.LINUX_DISTRO);
+            GlobalProperty usernameProperty = getGlobalProperty(GlobalPropertyConfig.OS_USERNAME);
+            GlobalProperty localIpProperty = getGlobalProperty(GlobalPropertyConfig.LOCAL_IP);
+
+            // Only proceed if all required properties exist
+            if (distroProperty != null && usernameProperty != null) {
+                String distro = distroProperty.getValueReference();
+                String username = usernameProperty.getValueReference();
+                if (distro != null && username != null) {
+                    String wslIp = OSUtil.getLocalIpAddress(distro, username);
+                    localIpProperty.setValueReference(wslIp);
+                    saveGlobalProperty(localIpProperty);
+                }
             }
         }
     }
@@ -117,20 +136,18 @@ public class NextGpuAgentService {
      * @param name     the name of the global property to be saved or updated
      * @param value    the value reference to be assigned to the global property
      * @param datatype the datatype of the global property
-     * @return the saved or updated {@code GlobalProperty} object
      */
-    public GlobalProperty saveGlobalProperty(String name, String value, String datatype) {
+    public void saveGlobalProperty(String name, String value, String datatype) {
         Optional<GlobalProperty> globalProperty = globalPropertyRepository.findByName(name);
         if (globalProperty.isPresent()) {
             globalProperty.get().setValueReference(value);
             globalPropertyRepository.save(globalProperty.get());
-            return globalProperty.get();
         } else {
             GlobalProperty newGlobalProperty = new GlobalProperty();
             newGlobalProperty.setName(name);
             newGlobalProperty.setDatatype(datatype);
             newGlobalProperty.setValueReference(value);
-            return globalPropertyRepository.save(newGlobalProperty);
+            globalPropertyRepository.save(newGlobalProperty);
         }
     }
 
@@ -143,6 +160,19 @@ public class NextGpuAgentService {
     @Loggable
     public GlobalProperty saveGlobalProperty(GlobalProperty globalProperty) {
         return globalPropertyRepository.save(globalProperty);
+    }
+
+
+    @Transactional
+    @Loggable
+    public void saveSetupCompletionGlobalProperties(boolean isSetupCompleted, int setupVersion) {
+        GlobalProperty setupCompletionProp = getGlobalProperty(GlobalPropertyConfig.IS_SETUP_COMPLETED);
+        setupCompletionProp.setValueReference(String.valueOf(isSetupCompleted));
+        saveGlobalProperty(setupCompletionProp);
+
+        GlobalProperty setupVersionProp = getGlobalProperty(GlobalPropertyConfig.SETUP_VERSION);
+        setupVersionProp.setValueReference(String.valueOf(setupVersion));
+        saveGlobalProperty(setupVersionProp);
     }
 
     /**
@@ -211,25 +241,33 @@ public class NextGpuAgentService {
      * Authenticates a user by sending their wallet address and a one-time key to a remote API.
      * If authentication is successful, the JWT token from the response is saved as a global property.
      *
-     * @param walletAddress the user's wallet address to be authenticated
      * @param oneTimeKey    a one-time key associated with the user's session or authentication attempt
      * @return true if authentication is successful, false otherwise
      */
-    public boolean authenticate(String walletAddress, String oneTimeKey) {
+    @Transactional
+    public boolean authenticate(String oneTimeKey) {
         try {
-            AuthResponseDto response = nextGpuWebService.verifyOtp(walletAddress, oneTimeKey);
-            saveGlobalProperty(GlobalPropertyConfig.JWT_TOKEN, response.getAccessToken(), "java.lang.String");
-            saveGlobalProperty(GlobalPropertyConfig.LOGIN_WALLET, walletAddress, "java.lang.String");
-            Provider provider = dataService.findProviderByWalletAddress(walletAddress);
-            User responseUser = response.getUser();
-            if (provider == null && responseUser instanceof Provider source) {
-                Provider newProvider = new Provider();
-                BeanUtils.copyProperties(source, newProvider, "id", "createdAt", "updatedAt");
-                // enforce consistency
-                newProvider.setWalletAddress(walletAddress);
-
-                dataService.saveProvider(newProvider);
+            AuthResponseDto response = nextGpuWebService.verifyOtp(oneTimeKey);
+            log.debug("Authentication successful. JWT token: {}", response.getUserDto().getUuid());
+            UserDto responseUserDto = response.getUserDto();
+            if (!responseUserDto.getRole().equals(Role.PROVIDER)) {
+                return false;
             }
+
+            saveGlobalProperty(GlobalPropertyConfig.JWT_TOKEN, response.getAccessToken(), "java.lang.String");
+            // Fetch computer attribute types and provider attribute types
+            List<ComputerAttributeTypeDto> computerAttributeTypes = nextGpuWebService.getComputerAttributeTypes();
+            log.debug("Fetched computer attribute types.");
+            List<ProviderAttributeTypeDto> providerAttributeTypes = nextGpuWebService.getProviderAttributeTypes();
+            log.debug("Fetched provider attribute types.");
+
+            providerService.saveProviderAttributeTypes(providerAttributeTypes);
+
+            Provider provider = providerService.saveProvider(responseUserDto);
+
+            saveGlobalProperty(GlobalPropertyConfig.LOGIN_WALLET, provider.getWalletAddress(), "java.lang.String");
+
+            computerService.saveComputerAttributeTypes(computerAttributeTypes);
             autoLogin();
             return true;
         } catch (Exception e) {
@@ -411,7 +449,8 @@ public class NextGpuAgentService {
     /* * Reporting Services * */
     /* ********************** */
     public BenchmarkReport generateComputerBenchmarkReport(boolean quick) throws Exception {
-        return computerService.generateComputerBenchmarkReport(loginWallet, quick);
+        GlobalProperty loginWalletProperty = getGlobalProperty(GlobalPropertyConfig.LOGIN_WALLET);
+        return computerService.generateComputerBenchmarkReport(loginWalletProperty.getValueReference(), quick);
     }
 
     /**
@@ -427,21 +466,8 @@ public class NextGpuAgentService {
      */
     public void saveBenchmarkReport(BenchmarkReport report) throws RuntimeException {
         try {
-            if (isLoggedIn()){
-                BenchmarkReportDto reportDto = new BenchmarkReportDto();
-                reportDto.setElapsedTime(report.getElapsedTime());
-                reportDto.setDateCreated(report.getDateCreated());
-                reportDto.setDescription(report.getDescription());
-                reportDto.setWalletAddress(report.getProvider().getWalletAddress());
-                reportDto.setComputerUuid(report.getComputer().getUuid());
-                reportDto.setMemoryBenchmarkResults(report.getMemoryBenchmarkResults());
-                reportDto.setCpuBenchmarkResults(report.getCpuBenchmarkResults());
-                reportDto.setGpuBenchmarkResults(report.getGpuBenchmarkResults());
-                reportDto.setStorageBenchmarkResults(report.getStorageBenchmarkResults());
-                reportDto.setNetworkBenchmarkResults(report.getNetworkBenchmarkResults());
-                reportDto.setOtherBenchmarkResults(report.getOtherBenchmarkResults());
-
-                nextGpuWebService.saveBenchmarkReport(reportDto);
+            if (hasValidJwt()){
+                nextGpuWebService.saveBenchmarkReport(BenchmarkReportDto.toDto(report));
             } else {
                 String errorMessage = "Cannot save Benchmark report. User is not logged-in.";
                 log.error("Cannot save Benchmark report. User is not logged-in.");
@@ -454,6 +480,49 @@ public class NextGpuAgentService {
 
     public Map<String, Object> generateComputerUsageReport() {
         return computerService.generateComputerUsageReport();
+    }
+
+    @Transactional
+    public boolean applyAsAProvider(Consumer<String> workflowStatus){
+        log.info("Applying as a Provider");
+        try {
+            if(hasValidJwt()){
+                log.info("User is logged in");
+                log.info("Detecting hardware");
+
+                workflowStatus.accept("Detecting provider hardware");
+                Computer computer = this.detectHardware();
+
+                log.info("Detected hardware.");
+
+                computer = this.saveDetectedHardware(computer);
+                log.info("Computer saved successfully: {}", computer.getUuid());
+
+                workflowStatus.accept("Generating hardware benchmark report");
+                // Generate a full benchmark report, not a quick one
+                BenchmarkReport benchmarkReport= this.generateComputerBenchmarkReport(true);
+                benchmarkReport.setComputer(computer);
+                log.info("Benchmark report generated successfully.");
+                this.saveBenchmarkReport(benchmarkReport);
+                log.info("Benchmark report saved successfully: {}", benchmarkReport.getUuid());
+
+                workflowStatus.accept("Auditing computer for anomalies");
+                boolean auditResult = nextGpuWebService.auditComputerForAnomalies(ComputerDto.toDto(computer));
+                log.info("Computer audit result: {}", auditResult);
+                if (auditResult) {
+                    fetchAndUpdateComputer(computer.getUuid());
+                    log.info("Computer updated successfully: {}", computer.getUuid());
+                }
+
+                return auditResult;
+            } else {
+                String errorMessage = "Cannot apply as a provider. User is not logged-in.";
+                log.error("Cannot apply as a provider. User is not logged-in.");
+                throw new RuntimeException(errorMessage);
+            }
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
     }
 
     /**
@@ -469,22 +538,43 @@ public class NextGpuAgentService {
      */
     @Transactional
     public Computer saveDetectedHardware(Computer detectedHardware) throws RuntimeException {
-        if(isLoggedIn()) {
-            Computer saveComputer = computerService.saveComputer(detectedHardware, loginWallet);
-            saveGlobalProperty(GlobalPropertyConfig.COMPUTER_UUID, saveComputer.getUuid(), "java.lang.String");
-            GlobalProperty jwtProperty = getGlobalProperty(GlobalPropertyConfig.JWT_TOKEN);
+        if(hasValidJwt()) {
+            GlobalProperty loginWalletProperty = getGlobalProperty(GlobalPropertyConfig.LOGIN_WALLET);
 
-            if(!initializeWebSocketClient(saveComputer.getUuid(), jwtProperty.getValueReference())){
-                String errorMessage = "Computer saved successfully, but failed to initialize WebSocket client";
-                log.error("Computer saved successfully, but failed to initialize WebSocket client");
-                webSocketMessageService.invalidateSessionKeyPair();
-                throw new RuntimeException(errorMessage);
-            }
+            Computer saveComputer = computerService.saveComputer(detectedHardware, loginWalletProperty.getValueReference());
+            saveGlobalProperty(GlobalPropertyConfig.COMPUTER_UUID, saveComputer.getUuid(), "java.lang.String");
+
+            // TODO: Work on Work socket
+//            GlobalProperty jwtProperty = getGlobalProperty(GlobalPropertyConfig.JWT_TOKEN);
+//            if(!initializeWebSocketClient(saveComputer.getUuid(), jwtProperty.getValueReference())){
+//                String errorMessage = "Computer saved successfully, but failed to initialize WebSocket client";
+//                log.error("Computer saved successfully, but failed to initialize WebSocket client");
+//                webSocketMessageService.invalidateSessionKeyPair();
+//                throw new RuntimeException(errorMessage);
+//            }
             return saveComputer;
         } else {
             String errorMessage = "User is not logged-in.";
             log.error("User is not logged-in.");
             throw new RuntimeException(errorMessage);
+        }
+    }
+
+    /**
+     * Fetches a computer's information using its UUID from an external service
+     * and updates the corresponding computer entity in the system.
+     *
+     * @param computerUuid the unique identifier of the computer to fetch and update
+     * @return the updated computer entity after applying the fetched information
+     * @throws RuntimeException if an error occurs during the fetch or update process
+     */
+    @Transactional
+    public Computer fetchAndUpdateComputer(String computerUuid) {
+        try {
+            ComputerDto computerDto = nextGpuWebService.getComputer(computerUuid);
+            return computerService.updateComputer(computerDto);
+        } catch (Exception e) {
+            throw new RuntimeException(e);
         }
     }
 
@@ -498,20 +588,8 @@ public class NextGpuAgentService {
     }
 
     public HardwareReport generateComputerHardwareReport(boolean asText) throws Exception {
-        return computerService.generateComputerHardwareReport(loginWallet, asText);
-    }
-
-    private void addJwtHeader(Map<String, String> headers) {
-        GlobalProperty property = getGlobalProperty(GlobalPropertyConfig.JWT_TOKEN);
-        String token = null;
-        if (property != null) {
-            token = property.getValueReference();
-        }
-        headers.put("Authorization", token);
-    }
-
-    public AnomalyReport generateAnomalyReport() {
-        return null;
+        GlobalProperty loginWalletProperty = getGlobalProperty(GlobalPropertyConfig.LOGIN_WALLET);
+        return computerService.generateComputerHardwareReport(loginWalletProperty.getValueReference(), asText);
     }
 
     public BaseReport generateConsumerUsageReport() {
@@ -565,4 +643,183 @@ public class NextGpuAgentService {
         saveGlobalProperty(GlobalPropertyConfig.SHOW_OPENCLAW_SHORTCUT, String.valueOf(enabled), "java.lang.Boolean");
         log.info("OpenClaw app navigation shortcut toggled to: {}", enabled);
     }
+
+    /**
+     * Updates the selected installation profile (e.g., 'provider' or 'ai_hub').
+     *
+     * @param profile the installation profile to save
+     */
+    @Transactional
+    public void updateInstallProfile(String profile) {
+        saveGlobalProperty(GlobalPropertyConfig.INSTALL_PROFILE, profile, "java.lang.String");
+        log.info("Installation profile updated to: {}", profile);
+    }
+
+    // ========================================================
+    // Navigation State Management
+    // ========================================================
+
+    /**
+     * Updates the last active screen to persist navigation state.
+     *
+     * @param screen the name of the active screen
+     */
+    @Transactional
+    public void updateLastActiveScreen(String screen) {
+        saveGlobalProperty(GlobalPropertyConfig.LAST_ACTIVE_SCREEN, screen, "java.lang.String");
+        log.debug("Last active screen updated to: {}", screen);
+    }
+
+    /**
+     * Retrieves the last active screen.
+     *
+     * @return the last active screen name, or an empty string if not set
+     */
+    public String getLastActiveScreen() {
+        GlobalProperty prop = getGlobalProperty(GlobalPropertyConfig.LAST_ACTIVE_SCREEN);
+        return prop != null && prop.getValueReference() != null ? prop.getValueReference() : "";
+    }
+
+    // ========================================================
+    // Provider State Management
+    // ========================================================
+
+    /**
+     * Checks if the detected hardware contains an NVIDIA GPU and saves the status.
+     * @return true if an Nvidia GPU is found, false otherwise.
+     */
+    @Loggable
+    @Transactional
+    public boolean checkAndSaveNvidiaGpuPresence() {
+        log.info("Checking for NVIDIA GPU presence...");
+        Computer computer = detectHardware();
+
+        boolean hasNvidia = false;
+        if (computer != null && computer.getGpus() != null) {
+            hasNvidia = computer.getGpus().stream()
+                    .anyMatch(gpu -> gpu.getManufacturer() != null
+                            && gpu.getManufacturer().toLowerCase().contains("nvidia"));
+        }
+        log.info("NVIDIA GPU detected: {}", hasNvidia);
+        saveGlobalProperty(GlobalPropertyConfig.HAS_NVIDIA_GPU, String.valueOf(hasNvidia), "java.lang.Boolean");
+        return hasNvidia;
+    }
+
+    // ========================================================
+    // Local Entity Fetchers for ViewModel Hydration
+    // ========================================================
+
+    /**
+     * Retrieves the complete locally stored Provider entity based on the current LOGIN_WALLET.
+     */
+    @Transactional(readOnly = true)
+    public Provider getLocalProvider() {
+        GlobalProperty walletProp = getGlobalProperty(GlobalPropertyConfig.LOGIN_WALLET);
+        if (walletProp != null && walletProp.getValueReference() != null && !walletProp.getValueReference().isBlank()) {
+            Provider provider = providerService.getProviderByWalletAddress(walletProp.getValueReference());
+            if (provider != null && provider.getProviderAttributes() != null) {
+                // Force initialization of the lazy collection while the transaction is active
+                provider.getProviderAttributes().size();
+            }
+            return provider;
+        }
+        return null;
+    }
+
+    /**
+     * Retrieves the complete locally stored Computer entity based on the saved COMPUTER_UUID.
+     */
+    @Transactional(readOnly = true)
+    public Computer getLocalComputer() {
+        GlobalProperty uuidProp = getGlobalProperty(GlobalPropertyConfig.COMPUTER_UUID);
+        if (uuidProp != null && uuidProp.getValueReference() != null && !uuidProp.getValueReference().isBlank()) {
+            Computer computer = dataService.findComputerByUuid(uuidProp.getValueReference()).orElse(null);
+            if (computer != null && computer.getComputerAttributes() != null) {
+                // Force initialization of the lazy collection while the transaction is active
+                computer.getComputerAttributes().size();
+            }
+            return computer;
+        }
+        return null;
+    }
+
+
+    // ========================================================
+    // JWT Validation Helpers
+    // ========================================================
+
+    /**
+     * Decodes the locally stored JWT to verify if it is structurally valid and not expired.
+     * It also verifies if the subject matches the provided wallet address.
+     *
+     * @param jwtToken The raw JWT token string
+     * @param walletAddress The expected wallet address (subject)
+     * @return true if valid and not expired, false otherwise
+     */
+    public boolean isJwtValid(String jwtToken, String walletAddress) {
+        if (jwtToken == null || jwtToken.isBlank() || walletAddress == null || walletAddress.isBlank()) {
+            return false;
+        }
+
+        try {
+            String[] parts = jwtToken.split("\\.");
+            if (parts.length != 3) {
+                return false;
+            }
+
+            // Decode payload using Base64 URL decoder
+            String payload = new String(Base64.getUrlDecoder().decode(parts[1]), StandardCharsets.UTF_8);
+
+            @SuppressWarnings("unchecked")
+            Map<String, Object> payloadMap = objectMapper.readValue(payload, Map.class);
+
+            // Check Expiration
+            Object expObj = payloadMap.get("exp");
+            if (expObj == null) return false;
+
+            // Handle cases where Jackson parses the timestamp as Integer or Long
+            long exp = (expObj instanceof Number) ? ((Number) expObj).longValue() : Long.parseLong(expObj.toString());
+            boolean isExpired = LocalDateTime.now(ZoneOffset.UTC).isAfter(LocalDateTime.ofEpochSecond(exp, 0, ZoneOffset.UTC));
+
+            if (isExpired) return false;
+
+            // Verify Subject
+            Object subObj = payloadMap.get("sub");
+            if (subObj == null || !walletAddress.equals(subObj.toString())) {
+                return false;
+            }
+
+            return true;
+        } catch (Exception e) {
+            log.warn("Failed to decode or validate JWT locally: {}", e.getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * Convenience method that reads the current properties from the database and evaluates them.
+     * * @return true if the stored token exists, is unexpired, and matches the stored wallet.
+     */
+    public boolean hasValidJwt() {
+        GlobalProperty jwtProp = getGlobalProperty(GlobalPropertyConfig.JWT_TOKEN);
+        GlobalProperty walletProp = getGlobalProperty(GlobalPropertyConfig.LOGIN_WALLET);
+
+        String token = (jwtProp != null) ? jwtProp.getValueReference() : null;
+        String wallet = (walletProp != null) ? walletProp.getValueReference() : null;
+
+        return isJwtValid(token, wallet);
+    }
+
+//
+//    @Transactional
+//    public void updateProviderStakeStatus(boolean hasSufficientStake) {
+//        saveGlobalProperty(GlobalPropertyConfig.PROVIDER_STAKE_STATUS, String.valueOf(hasSufficientStake), "java.lang.Boolean");
+//        log.debug("Provider stake status updated to: {}", hasSufficientStake);
+//    }
+//
+//    @Transactional
+//    public void updateProviderAuditStatus(String auditStatus) {
+//        saveGlobalProperty(GlobalPropertyConfig.PROVIDER_AUDIT_STATUS, auditStatus, "java.lang.String");
+//        log.debug("Provider audit status updated to: {}", auditStatus);
+//    }
 }

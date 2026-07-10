@@ -34,11 +34,16 @@ import androidx.compose.foundation.hoverable
 import kotlin.math.max
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 enum class PromptMode { TEXT, IMAGE }
 
 @Composable
 fun PromptRegion(
+    sessionId: String?,
     promptText: TextFieldValue,
     onPromptChange: (TextFieldValue) -> Unit,
     onSendPrompt: () -> Unit,
@@ -50,6 +55,9 @@ fun PromptRegion(
     onGenerateImage: (pos: String, neg: String, width: Int, height: Int) -> Unit,
     // Opens Settings popup directly on the Models tab
     onOpenModelSettings: () -> Unit,
+    audioRecorderService: ai.nextgpu.agent.service.AudioRecorderService,
+    onCheckSttHealth: suspend () -> Boolean,
+    onTranscribeAudio: suspend (java.io.File) -> String?
 ) {
 
     // =========================================================
@@ -70,8 +78,33 @@ fun PromptRegion(
 
     val focusRequester = remember { FocusRequester() }
 
-    LaunchedEffect(isMultiLine) {
-        focusRequester.requestFocus()
+    var isRecording by remember(sessionId) { mutableStateOf(false) }
+    var isSttProcessing by remember(sessionId) { mutableStateOf(false) }
+    val audioAmplitudes = remember(sessionId) {
+        mutableStateListOf<Float>().apply { addAll(List(55) { 0.1f }) }
+    }
+    val coroutineScope = rememberCoroutineScope()
+
+    DisposableEffect(sessionId) {
+        onDispose {
+            if (isRecording) {
+                // Silently stop recording and trash the temp file
+                try { audioRecorderService.stopRecording().delete() } catch (e: Exception) {}
+            }
+        }
+    }
+
+    LaunchedEffect(isMultiLine, isRecording, isSttProcessing) {
+        // Only attempt to grab focus if we are NOT in the recording overlay
+        if (!isRecording && !isSttProcessing) {
+            // Yield for a few milliseconds to ensure MainTextField is fully attached to the UI tree
+            delay(50)
+            try {
+                focusRequester.requestFocus()
+            } catch (e: Exception) {
+                // Safely swallow the error if the composition is still transitioning
+            }
+        }
     }
 
     LaunchedEffect(promptText.text) {
@@ -87,6 +120,78 @@ fun PromptRegion(
         }
     }
 
+
+    val startRecording = {
+        coroutineScope.launch(Dispatchers.IO) {
+            val isHealthy = onCheckSttHealth()
+            if (isHealthy) {
+                // Ensure we update state on Main thread
+                withContext(Dispatchers.Main) {
+                    isRecording = true
+                }
+                try {
+                    audioRecorderService.startRecording { amplitude ->
+                        val boosted = (kotlin.math.sqrt(amplitude) * 5.0f).coerceIn(0.2f, 1.0f)
+                        val smoothed = (audioAmplitudes.last() * 0.3f) + (boosted * 0.7f)
+
+                        // Protect against index out of bounds during rapid resets
+                        if (audioAmplitudes.isNotEmpty()) {
+                            audioAmplitudes.removeAt(0)
+                            audioAmplitudes.add(smoothed)
+                        }
+                    }
+                } catch (e: Exception) {
+                    withContext(Dispatchers.Main) {
+                        isRecording = false
+                    }
+                }
+            }
+        }
+    }
+
+    val stopAndProcessRecording = { sendImmediately: Boolean ->
+        // Remember which chat we were in when we clicked stop
+        val capturedSessionId = sessionId
+
+        isRecording = false
+        isSttProcessing = true
+        audioAmplitudes.clear()
+        audioAmplitudes.addAll(List(55) { 0.1f })
+
+        coroutineScope.launch(Dispatchers.IO) {
+            val audioFile = audioRecorderService.stopRecording()
+
+            try {
+                val transcribedText = onTranscribeAudio(audioFile)
+
+                withContext(Dispatchers.Main) {
+                    // 4. CONTEXT CHECK: Only apply text if the user hasn't switched chats!
+                    if (sessionId == capturedSessionId && !transcribedText.isNullOrBlank()) {
+                        if (sendImmediately) {
+                            onPromptChange(TextFieldValue(transcribedText))
+                            delay(50) // Give Compose a frame to update the UI state
+                            onSendPrompt()
+                        }else {
+                            val currentText = promptText.text
+                            val space = if (currentText.isNotEmpty() && !currentText.endsWith(" ")) " " else ""
+                            onPromptChange(TextFieldValue(currentText + space + transcribedText))
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                // Handle error
+            } finally {
+                withContext(Dispatchers.Main) {
+                    // Only drop the loading spinner if we are still in the original chat
+                    if (sessionId == capturedSessionId) {
+                        isSttProcessing = false
+                    }
+                }
+                audioFile.delete() // Clean up temp file!
+            }
+        }
+    }
+
     val cornerRadius by animateDpAsState(
         targetValue = if (currentMode == PromptMode.IMAGE || isMultiLine) RadiusExtraLarge else RadiusRound
     )
@@ -95,8 +200,10 @@ fun PromptRegion(
     val isSendEnabled = promptText.text.isNotBlank() &&
             (currentMode == PromptMode.TEXT || hasInstalledComfyModel)
 
-    val handleEnterPress = {
-        if (isSendEnabled) {
+    val handleEnterPress: () -> Unit = {
+        if (isRecording) {
+            stopAndProcessRecording(true)
+        } else if (isSendEnabled) {
             if (currentMode == PromptMode.TEXT) {
                 onSendPrompt()
             } else {
@@ -231,7 +338,43 @@ fun PromptRegion(
                     .fillMaxWidth()
                     .padding(SpacingLarge)
             ) {
-                if (isMultiLine) {
+                if (isRecording || isSttProcessing) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(HeightInputMin), // Match normal input height
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+
+                        PromptIconButton(
+                            onClick = { stopAndProcessRecording(false) },
+                            enabled = !isSttProcessing,
+                            iconPath = "icons/stop.svg",
+                            contentDescription = "Stop & Edit",
+                            hoverBackgroundColor = NextGpuTheme.colors.primaryVariant.copy(alpha = 0.2f),
+                            backgroundColor = NextGpuTheme.colors.primaryVariant.copy(alpha = 0.1f),
+                            iconTint = NextGpuTheme.colors.primaryVariant
+                        )
+
+                        // Dynamic Visualizer
+                        WaveformVisualizer(
+                            amplitudes = audioAmplitudes,
+                            modifier = Modifier
+                                .weight(1f)
+                                .padding(horizontal = SpacingExtraLarge * 4)
+                        )
+
+
+                        PromptActionIconButton(
+                            isGenerating = false, // Ensure this is false during STT
+                            isLoading = isSttProcessing, // Triggers the new spinner
+                            isEnabled = !isSttProcessing,
+                            onSend = { stopAndProcessRecording(true) },
+                            onCancel = { /* Cancel in-flight STT if you wire that up later */ }
+                        )
+                    }
+                } else if (isMultiLine) {
                     // ---- MULTI-LINE LAYOUT (stacked) ----
                     MainTextField(modifier = Modifier.fillMaxWidth().padding(bottom = SpacingMedium))
 
@@ -279,6 +422,19 @@ fun PromptRegion(
                         }
 
                         Spacer(modifier = Modifier.width(SpacingMedium))
+
+
+                        PromptIconButton(
+                            onClick = { startRecording() },
+                            iconPath = "icons/mic.svg",
+                            contentDescription = "Voice Prompt",
+                            hoverBackgroundColor = NextGpuTheme.colors.textSecondary.copy(alpha = 0.1f),
+                            enabled = !isGenerating,
+                            iconTint = NextGpuTheme.colors.textSecondary,
+                            iconSize = IconSizeMedium
+                        )
+
+                        Spacer(modifier = Modifier.width(SpacingSmall))
 
                         PromptActionIconButton(
                             isGenerating = isGenerating,
@@ -430,8 +586,9 @@ private fun ImageConfigDropdown(
 }
 
 @Composable
-private fun PromptActionIconButton(
+fun PromptActionIconButton(
     isGenerating: Boolean,
+    isLoading: Boolean = false, // <-- New state
     isEnabled: Boolean,
     onSend: () -> Unit,
     onCancel: () -> Unit,
@@ -440,7 +597,23 @@ private fun PromptActionIconButton(
     val interactionSource = remember { MutableInteractionSource() }
     val isHovered by interactionSource.collectIsHoveredAsState()
 
-    if (isGenerating) {
+    if (isLoading) {
+        // --- NEW: Spinner State ---
+        Box(
+            modifier = modifier
+                .size(SpacingHuge)
+                .background(NextGpuTheme.colors.hoverBackground, CircleShape)
+                .clip(CircleShape),
+            contentAlignment = Alignment.Center
+        ) {
+            CircularProgressIndicator(
+                modifier = Modifier.size(IconSizeSmall),
+                color = NextGpuTheme.colors.textSecondary,
+                strokeWidth = 2.dp
+            )
+        }
+    } else if (isGenerating) {
+        // --- EXISTING: Cancel Generation State ---
         Box(
             modifier = modifier
                 .size(SpacingHuge)
@@ -463,6 +636,7 @@ private fun PromptActionIconButton(
             )
         }
     } else {
+        // --- EXISTING: Send State ---
         Box(
             modifier = modifier
                 .size(SpacingHuge)

@@ -1,6 +1,5 @@
 package ai.nextgpu.common.dto;
 
-import ai.nextgpu.common.model.User;
 import lombok.Data;
 
 import java.util.Date;
@@ -9,5 +8,5 @@ import java.util.Date;
 public class AuthResponseDto {
     private String accessToken;
     private Date accessTokenExpiry;
-    private User user;
+    private UserDto userDto;
 }

@@ -27,6 +27,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import ai.nextgpu.agent.model.PromptModel
+import ai.nextgpu.agent.ui.AppPortal
 import ai.nextgpu.agent.ui.component.CustomButton
 import ai.nextgpu.agent.ui.theme.*
 
@@ -76,7 +77,8 @@ fun TopNavigation(
             .fillMaxWidth()
             .height(HeightTopBar)
             .background(NextGpuTheme.colors.background)
-            .padding(horizontal = SpacingLarge)
+            .clip(RoundedCornerShape(topStart = RadiusMedium))
+            .padding(horizontal = SpacingMedium)
     ) {
         // --- Left side: Model Selector ---
         Box(
@@ -428,78 +430,81 @@ fun TopNavigation(
 
     // --- Model Change Warning Dialog ---
     if (showModelChangeWarning) {
-        Dialog(
-            onDismissRequest = {
-                showModelChangeWarning = false
-                pendingModelSelection = null
-            }
-        ) {
-            Surface(
-                shape = RoundedCornerShape(RadiusMedium),
-                color = NextGpuTheme.colors.surface,
-                contentColor = NextGpuTheme.colors.textPrimary,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = SpacingLarge)
+        AppPortal {
+            Dialog(
+                onDismissRequest = {
+                    showModelChangeWarning = false
+                    pendingModelSelection = null
+                }
             ) {
-                Column(
-                    modifier = Modifier.padding(
-                        top = SpacingLarge,
-                        start = SpacingLarge,
-                        end = SpacingLarge,
-                        bottom = SpacingMedium
-                    )
+                Surface(
+                    shape = RoundedCornerShape(RadiusMedium),
+                    color = NextGpuTheme.colors.surface,
+                    contentColor = NextGpuTheme.colors.textPrimary,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = SpacingLarge)
                 ) {
-                    Text(
-                        text = "Switching Model?",
-                        style = NextGpuTheme.typography.h6,
-                        color = NextGpuTheme.colors.textPrimary,
-                        modifier = Modifier.padding(bottom = SpacingSmall)
-                    )
-
-                    Text(
-                        text = "Changing the AI model will reset your current chat session. Do you want to proceed?",
-                        style = MaterialTheme.typography.body2,
-                        color = NextGpuTheme.colors.textSecondary,
-                        modifier = Modifier.padding(bottom = SpacingMedium)
-                    )
-
-                    Spacer(modifier = Modifier.height(SpacingLarge))
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.End,
-                        verticalAlignment = Alignment.CenterVertically
+                    Column(
+                        modifier = Modifier.padding(
+                            top = SpacingLarge,
+                            start = SpacingLarge,
+                            end = SpacingLarge,
+                            bottom = SpacingMedium
+                        )
                     ) {
-                        CustomButton(
-                            text = "Cancel",
-                            onClick = {
-                                showModelChangeWarning = false
-                                pendingModelSelection = null
-                            },
-                            backgroundColor = Color.Transparent,
-                            textColor = NextGpuTheme.colors.textSecondary,
-                            elevation = false,
+                        Text(
+                            text = "Switching Model?",
+                            style = NextGpuTheme.typography.h6,
+                            color = NextGpuTheme.colors.textPrimary,
+                            modifier = Modifier.padding(bottom = SpacingSmall)
                         )
 
-                        Spacer(modifier = Modifier.width(SpacingSmall))
-
-                        CustomButton(
-                            text = "Yes, Switch Model",
-                            onClick = {
-                                showModelChangeWarning = false
-                                pendingModelSelection?.let { onSelectModel(it) }
-                                pendingModelSelection = null
-                            },
-                            backgroundColor = ErrorText,
-                            textColor = Primary01White,
-                            elevation = false,
-                            contentPadding = PaddingValues(horizontal = SpacingLarge, vertical = SpacingSmall)
+                        Text(
+                            text = "Changing the AI model will reset your current chat session. Do you want to proceed?",
+                            style = MaterialTheme.typography.body2,
+                            color = NextGpuTheme.colors.textSecondary,
+                            modifier = Modifier.padding(bottom = SpacingMedium)
                         )
+
+                        Spacer(modifier = Modifier.height(SpacingLarge))
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.End,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            CustomButton(
+                                text = "Cancel",
+                                onClick = {
+                                    showModelChangeWarning = false
+                                    pendingModelSelection = null
+                                },
+                                backgroundColor = Color.Transparent,
+                                textColor = NextGpuTheme.colors.textSecondary,
+                                elevation = false,
+                            )
+
+                            Spacer(modifier = Modifier.width(SpacingSmall))
+
+                            CustomButton(
+                                text = "Yes, Switch Model",
+                                onClick = {
+                                    showModelChangeWarning = false
+                                    pendingModelSelection?.let { onSelectModel(it) }
+                                    pendingModelSelection = null
+                                },
+                                backgroundColor = ErrorText,
+                                textColor = Primary01White,
+                                elevation = false,
+                                contentPadding = PaddingValues(horizontal = SpacingLarge, vertical = SpacingSmall)
+                            )
+                        }
                     }
                 }
             }
         }
+
     }
 }
 

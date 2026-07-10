@@ -50,7 +50,7 @@ public class AnalyticsService {
         this.redisTemplate = redisTemplate;
         this.nextGpuWebService = nextGpuWebService;
         this.hardwareUtil = hardwareUtil;
-        this.machineHash = getMachineHash();
+        this.machineHash = HardwareUtil.generateHardwareFingerprint();
     }
 
     /**
@@ -130,47 +130,6 @@ public class AnalyticsService {
         storeEvent(event);
     }
 
-    /**
-     * Retrieves a unique machine hash based on the CPU's manufacturer and product identifier.
-     *
-     * @return a string containing the machine hash, or {@code null} if no CPU information is available.
-     */
-    public String getMachineHash() {
-        List<Cpu> cpus = cpuRepository.findAll();
-        if (cpus.isEmpty()) {
-            cpus = hardwareUtil.detectCpus().stream().limit(1).toList();
-        }
-        Cpu cpu = cpus.getFirst();
-        return cpu != null ? generateHash(
-                cpu.getManufacturer() != null ? cpu.getManufacturer().trim() : cpu.getArchitecture().name().trim(),
-                cpu.getProductIdentifier() != null ? cpu.getProductIdentifier().trim() : "") : null;
-    }
-
-    /**
-     * Generates a SHA-256 hash from manufacturer and product identifier.
-     * The hash is irreversible and cannot be traced back to the user.
-     *
-     * @param manufacturer   e.g., "Intel"
-     * @param productId      e.g., "CM8071505120474"
-     * @return a hex string hash (64 chars)
-     */
-    public String generateHash(String manufacturer, String productId) {
-        String raw = (manufacturer != null ? manufacturer.trim() : "")
-                + "|" + (productId != null ? productId.trim() : "");
-        try {
-            MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            byte[] hash = digest.digest(raw.getBytes(StandardCharsets.UTF_8));
-            StringBuilder hexString = new StringBuilder();
-            for (byte b : hash) {
-                String hex = Integer.toHexString(0xff & b);
-                if (hex.length() == 1) hexString.append('0');
-                hexString.append(hex);
-            }
-            return hexString.toString();
-        } catch (NoSuchAlgorithmException e) {
-            throw new RuntimeException("SHA-256 not available", e);
-        }
-    }
 
     /**
      * Sends an analytics event capturing the application's uptime duration.

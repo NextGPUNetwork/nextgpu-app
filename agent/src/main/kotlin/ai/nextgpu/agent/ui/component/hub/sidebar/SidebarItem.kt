@@ -23,19 +23,21 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import ai.nextgpu.agent.ui.theme.*
+import androidx.compose.ui.unit.dp
 
 @Composable
 fun SidebarItem(
     icon: String,
     label: String,
     isCollapsed: Boolean,
+    isActive: Boolean = false,
     onClick: (() -> Unit)? = null
 ) {
     val hoverShape = RoundedCornerShape(RadiusSmall)
-    val startPadding = RadiusSmall
+    val startPadding = 8.dp
 
     Surface(
-        color = Color.Companion.Transparent,
+        color = if (isActive) NextGpuTheme.colors.hoverBackground else Color.Transparent,
         shape = hoverShape,
         modifier = Modifier.Companion
             .fillMaxWidth()
@@ -49,7 +51,7 @@ fun SidebarItem(
                 base
                     .hoverable(interaction)
                     .background(
-                        color = if (hovered) NextGpuTheme.colors.hoverBackground else Color.Companion.Transparent,
+                        color = if (hovered && !isActive) NextGpuTheme.colors.hoverBackground else Color.Companion.Transparent,
                         shape = hoverShape
                     )
                     .clickable(
@@ -63,11 +65,11 @@ fun SidebarItem(
         Row(
             modifier = Modifier.Companion.fillMaxSize(),
             verticalAlignment = Alignment.Companion.CenterVertically,
-            horizontalArrangement = if (isCollapsed) Arrangement.Center else Arrangement.Start
+            horizontalArrangement = Arrangement.Start
         ) {
-            if (!isCollapsed) {
-                Spacer(modifier = Modifier.Companion.width(startPadding))
-            }
+
+            Spacer(modifier = Modifier.Companion.width(startPadding))
+
 
             Icon(
                 painter = painterResource("icons/$icon.svg"),

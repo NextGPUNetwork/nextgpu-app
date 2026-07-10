@@ -1,8 +1,5 @@
 package ai.nextgpu.agent.config;
 
-import io.jsonwebtoken.Jwts;
-import io.jsonwebtoken.SignatureAlgorithm;
-import io.jsonwebtoken.security.Keys;
 import ai.nextgpu.common.model.GlobalProperty;
 import ai.nextgpu.agent.repository.GlobalPropertyRepository;
 import ai.nextgpu.agent.util.OSUtil;
@@ -10,10 +7,7 @@ import ai.nextgpu.common.util.StringUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-
-import java.util.Date;
 
 @Configuration
 public class GlobalPropertyConfig {
@@ -22,8 +16,6 @@ public class GlobalPropertyConfig {
 
     // Contains the token used during the session
     public static final String JWT_TOKEN = "JWT_TOKEN";
-
-    public static final String WALLET_ADDRESS = "WALLET_ADDRESS";
 
     // Contains the UUID of the computer saved in the local DB
     public static final String COMPUTER_UUID = "COMPUTER_UUID";
@@ -55,6 +47,9 @@ public class GlobalPropertyConfig {
     // Indicates whether the client machine setup has been completed or not
     public static final String IS_SETUP_COMPLETED = "IS_SETUP_COMPLETED";
 
+    public static final String SETUP_VERSION = "SETUP_VERSION";
+
+
     // Comma-separated list of values Indicates the AI usage preferences of the user
     public static final String USAGE_PREFERENCES = "USAGE_PREFERENCES";
 
@@ -76,6 +71,17 @@ public class GlobalPropertyConfig {
     // Indicates if the OpenClaw shortcut should be pinned to the app's main navigation
     public static final String SHOW_OPENCLAW_SHORTCUT = "SHOW_OPENCLAW_SHORTCUT";
 
+    // Indicates the selected installation path: 'provider' or 'ai_hub'
+    public static final String INSTALL_PROFILE = "INSTALL_PROFILE";
+
+    // Tracks the last active screen to restore the session upon restart
+    public static final String LAST_ACTIVE_SCREEN = "LAST_ACTIVE_SCREEN";
+
+    public static final String HAS_NVIDIA_GPU = "HAS_NVIDIA_GPU";
+
+    // IP address of the WSL distribution (cached to avoid repeated WSL queries)
+    public static final String LOCAL_IP = "WSL_IP";
+
     // Application uptime timestamp
     public static Long APPLICATION_UP_TIMESTAMP;
 
@@ -87,14 +93,7 @@ public class GlobalPropertyConfig {
     }
 
     public void InitializeGlobalProperties() {
-        String walletAddress = "0x0eFD6b1e79104A7AF9cc49D6c61dfFb9f3Ea0921";
-        if (globalPropertyRepository.findByName(JWT_TOKEN).isEmpty()) {
-            //TODO: For now, I'm creating a valid JWT token for development, must be replaced afterwards
-            updateJwtProperty(getJwtToken(walletAddress));
-        }
-        if (globalPropertyRepository.findByName(WALLET_ADDRESS).isEmpty()) {
-            updateWalletProperty(walletAddress);
-        }
+
         if (globalPropertyRepository.findByName(UNLOCK_CODE).isEmpty()) {
             updateUnlockCodeProperty(StringUtil.generateRandomHexString(6));
         }
@@ -118,6 +117,9 @@ public class GlobalPropertyConfig {
         }
         if (globalPropertyRepository.findByName(IS_SETUP_COMPLETED).isEmpty()) {
             updateIsSetupCompleteProperty(false);
+        }
+        if (globalPropertyRepository.findByName(SETUP_VERSION).isEmpty()) {
+            updateSetupVersionProperty(0);
         }
         if (globalPropertyRepository.findByName(USAGE_PREFERENCES).isEmpty()) {
             updateUsagePreferencesProperty("");
@@ -143,6 +145,18 @@ public class GlobalPropertyConfig {
         if (globalPropertyRepository.findByName(SHOW_OPENCLAW_SHORTCUT).isEmpty()) {
             createOpenclawShortcutProperty();
         }
+        if (globalPropertyRepository.findByName(INSTALL_PROFILE).isEmpty()) {
+            updateInstallProfileProperty(""); // Default empty until user selects a path
+        }
+        if (globalPropertyRepository.findByName(LAST_ACTIVE_SCREEN).isEmpty()) {
+            updateLastActiveScreenProperty(""); // Default to empty
+        }
+        if (globalPropertyRepository.findByName(HAS_NVIDIA_GPU).isEmpty()) {
+            updateHasNvidiaGpuProperty(false);
+        }
+        if (globalPropertyRepository.findByName(LOCAL_IP).isEmpty()) {
+            updateLocalIpProperty("127.0.0.1");
+        }
     }
 
     public void updateUnlockCodeProperty(String unlockCode) {
@@ -166,16 +180,6 @@ public class GlobalPropertyConfig {
         }
     }
 
-    @SuppressWarnings("deprecation")
-    private String getJwtToken(String str) {
-        return Jwts.builder()
-                .subject(str)
-                .issuedAt(new Date())
-                .expiration(new Date(System.currentTimeMillis() + 86400000)) // 1 day expiration
-                .signWith(Keys.secretKeyFor(SignatureAlgorithm.HS256))
-                .compact();
-    }
-
     public void updateJwtProperty(String jwtToken) {
         try {
             globalPropertyRepository.findByName(JWT_TOKEN).ifPresentOrElse(jwtProperty -> {
@@ -190,26 +194,6 @@ public class GlobalPropertyConfig {
                 jwtProperty.setRetired(false);
                 jwtProperty.setValueReference(jwtToken);
                 globalPropertyRepository.save(jwtProperty);
-            });
-        } catch (Exception e) {
-            log.error(e.getMessage());
-        }
-    }
-
-    public void updateWalletProperty(String wallet) {
-        try {
-            globalPropertyRepository.findByName(LOGIN_WALLET).ifPresentOrElse(walletProperty -> {
-                walletProperty.setValueReference(wallet);
-                globalPropertyRepository.save(walletProperty);
-            }, () -> {
-                GlobalProperty walletAddress = new GlobalProperty();
-                walletAddress.setName(LOGIN_WALLET);
-                walletAddress.setDatatype("java.lang.String");
-                walletAddress.setDescription("The Wallet Address associated with the Jwt token");
-                walletAddress.setVersion(1);
-                walletAddress.setRetired(false);
-                walletAddress.setValueReference(wallet);
-                globalPropertyRepository.save(walletAddress);
             });
         } catch (Exception e) {
             log.error(e.getMessage());
@@ -362,6 +346,27 @@ public class GlobalPropertyConfig {
         }
     }
 
+    public void updateSetupVersionProperty(int version) {
+        try {
+            globalPropertyRepository.findByName(SETUP_VERSION).ifPresentOrElse(setup -> {
+                        setup.setValueReference(Integer.toString(version));
+                        globalPropertyRepository.save(setup);
+                    }, () -> {
+                        GlobalProperty setup = new GlobalProperty();
+                        setup.setName(SETUP_VERSION);
+                        setup.setDatatype("java.lang.Integer");
+                        setup.setDescription("Indicates the version of the setup used for installation of prerequisites.");
+                        setup.setVersion(1);
+                        setup.setRetired(false);
+                        setup.setValueReference(Integer.toString(version));
+                        globalPropertyRepository.save(setup);
+                    }
+            );
+        } catch (Exception e) {
+            log.error(e.getMessage());
+        }
+    }
+
     public void updateUsagePreferencesProperty(String preferences) {
         try {
             globalPropertyRepository.findByName(USAGE_PREFERENCES).ifPresentOrElse(preference -> {
@@ -425,6 +430,67 @@ public class GlobalPropertyConfig {
         }
     }
 
+    public void updateInstallProfileProperty(String profile) {
+        try {
+            globalPropertyRepository.findByName(INSTALL_PROFILE).ifPresentOrElse(p -> {
+                p.setValueReference(profile);
+                globalPropertyRepository.save(p);
+            }, () -> {
+                GlobalProperty p = new GlobalProperty();
+                p.setName(INSTALL_PROFILE);
+                p.setDatatype("java.lang.String");
+                p.setDescription("The selected installation profile: 'provider' or 'ai_hub'");
+                p.setVersion(1);
+                p.setRetired(false);
+                p.setValueReference(profile);
+                globalPropertyRepository.save(p);
+            });
+        } catch (Exception e) {
+            log.error(e.getMessage());
+        }
+    }
+
+    public void updateLastActiveScreenProperty(String screen) {
+        try {
+            globalPropertyRepository.findByName(LAST_ACTIVE_SCREEN).ifPresentOrElse(p -> {
+                p.setValueReference(screen);
+                globalPropertyRepository.save(p);
+            }, () -> {
+                GlobalProperty p = new GlobalProperty();
+                p.setName(LAST_ACTIVE_SCREEN);
+                p.setDatatype("java.lang.String");
+                p.setDescription("The last active screen before the application was closed");
+                p.setVersion(1);
+                p.setRetired(false);
+                p.setValueReference(screen);
+                globalPropertyRepository.save(p);
+            });
+        } catch (Exception e) {
+            log.error(e.getMessage());
+        }
+    }
+
+    public void updateHasNvidiaGpuProperty(boolean hasGpu) {
+        try {
+            globalPropertyRepository.findByName(HAS_NVIDIA_GPU).ifPresentOrElse(p -> {
+                p.setValueReference(hasGpu ? "true" : "false");
+                globalPropertyRepository.save(p);
+            }, () -> {
+                GlobalProperty p = new GlobalProperty();
+                p.setName(HAS_NVIDIA_GPU);
+                p.setDatatype("java.lang.Boolean");
+                p.setDescription("Indicates if a compatible Nvidia GPU was detected");
+                p.setVersion(1);
+                p.setRetired(false);
+                p.setValueReference(hasGpu ? "true" : "false");
+                globalPropertyRepository.save(p);
+            });
+        } catch (Exception e) {
+            log.error(e.getMessage());
+        }
+    }
+
+
     private void createMaxPinnedMessagesProperty() {
         GlobalProperty maxPinnedProperty = new GlobalProperty();
         maxPinnedProperty.setName(MAX_PINNED_MESSAGES);
@@ -478,5 +544,25 @@ public class GlobalPropertyConfig {
         shortcutProp.setRetired(false);
         shortcutProp.setValueReference("false"); // Default to false
         globalPropertyRepository.save(shortcutProp);
+    }
+
+    public void updateLocalIpProperty(String localIp) {
+        try {
+            globalPropertyRepository.findByName(LOCAL_IP).ifPresentOrElse(p -> {
+                p.setValueReference(localIp);
+                globalPropertyRepository.save(p);
+            }, () -> {
+                GlobalProperty p = new GlobalProperty();
+                p.setName(LOCAL_IP);
+                p.setDatatype("java.lang.String");
+                p.setDescription("The IP address of the WSL distribution for connecting to services like Ollama");
+                p.setVersion(1);
+                p.setRetired(false);
+                p.setValueReference(localIp);
+                globalPropertyRepository.save(p);
+            });
+        } catch (Exception e) {
+            log.error(e.getMessage());
+        }
     }
 }

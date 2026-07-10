@@ -1,11 +1,16 @@
 package ai.nextgpu.common.dto;
 
 import ai.nextgpu.common.model.Provider;
+import ai.nextgpu.common.model.ProviderAttributeType;
 import ai.nextgpu.common.model.Role;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 import lombok.experimental.SuperBuilder;
 import org.springframework.beans.BeanUtils;
+
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.Map;
 
 @Data
 @SuperBuilder
@@ -24,6 +29,8 @@ public class ProviderDto extends BaseDto {
 
     private Role role;
 
+    private Map<String, String> providerAttributes;
+
     public static ProviderDto toDto(Provider provider){
         return ProviderDto.builder()
                 .username(provider.getUsername())
@@ -39,6 +46,7 @@ public class ProviderDto extends BaseDto {
                 .dateVoided(provider.getDateVoided())
                 .dateUpdated(provider.getDateUpdated())
                 .voidReason(provider.getVoidReason())
+                .providerAttributes(toProviderAttributeDtosMap(provider.getProviderAttributes()))
                 .build();
     }
 
@@ -49,4 +57,22 @@ public class ProviderDto extends BaseDto {
 
         return provider;
     }
+
+    public static Map<String, String> toProviderAttributeDtosMap(
+            Map<ProviderAttributeType, String> attributeMap) {
+
+        if (attributeMap == null || attributeMap.isEmpty()) {
+            return Collections.emptyMap();
+        }
+        // Create new map
+        Map<String , String> result = new HashMap<>();
+
+        // Iterate and convert
+        for (Map.Entry<ProviderAttributeType, String> entry : attributeMap.entrySet()) {
+            result.put(entry.getKey().getName(), entry.getValue());
+        }
+
+        return result;
+    }
+
 }

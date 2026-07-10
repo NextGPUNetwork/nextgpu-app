@@ -1,5 +1,7 @@
 package ai.nextgpu.agent.util;
 
+import ai.nextgpu.common.dto.StructuredAiRequestDto;
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import ai.nextgpu.agent.config.GlobalPropertyConfig;
 import ai.nextgpu.agent.repository.GlobalPropertyRepository;
@@ -9,15 +11,14 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 
-import java.io.BufferedReader;
-import java.io.InputStream;
-import java.io.InputStreamReader;
-import java.io.OutputStream;
+import java.io.*;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.UUID;
 
 
 /**
@@ -99,6 +100,22 @@ public class HttpUtil {
     }
 
     /**
+     * Sends an HTTP GET request to the specified URL and deserializes the response into the specified generic type.
+     *
+     * @param <T>          the type of the response object
+     * @param urlString    the URL to which the GET request is sent
+     * @param responseType the generic type reference to deserialize the response into
+     * @param includeAuth  whether to include an authentication token in the request
+     * @return the deserialized response object of type T
+     * @throws Exception if an error occurs during connection, deserialization, or while reading the response
+     */
+    public <T> T get(String urlString, TypeReference<T> responseType, boolean includeAuth) throws Exception {
+        String token = includeAuth ? getJwtToken() : null;
+        String response = get(urlString, token);
+        return objectMapper.readValue(response, responseType);
+    }
+
+    /**
      * Sends an HTTP POST request to the specified URL with the given body object serialized as JSON
      * and returns the response as a string.
      *
@@ -121,7 +138,6 @@ public class HttpUtil {
 
         return readResponse(conn);
     }
-
     /**
      * Sends an HTTP POST request to the specified URL with the given body object serialized as JSON
      * and deserializes the response into the specified type.
@@ -137,6 +153,94 @@ public class HttpUtil {
     public <T> T post(String urlString, Object body, Class<T> responseType, boolean includeAuth) throws Exception {
         String token = includeAuth ? getJwtToken() : null;
         String response = post(urlString, body, token);
+        return objectMapper.readValue(response, responseType);
+    }
+
+    /**
+     * Sends an HTTP multipart/form-data POST request.
+     * The body must be a Map where File values are sent as file parts and other values are sent as text fields.
+     *
+     * @param urlString the URL to which the POST request is sent
+     * @param multipartBody the multipart request body as a map of form field names to values
+     * @param token the authentication token to include in the request
+     * @return the response from the server as a string
+     * @throws Exception if an error occurs during connection, file reading, or response processing
+     */
+    private String postMultipart(String urlString, Map<String, Object> multipartBody, String token) throws Exception {
+
+        String boundary = "----NextGpuBoundary" + UUID.randomUUID();
+        String lineBreak = "\r\n";
+
+        URL url = new URL(urlString);
+        HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+        conn.setRequestMethod("POST");
+        conn.setDoOutput(true);
+        conn.setRequestProperty("Content-Type", "multipart/form-data; boundary=" + boundary);
+        conn.setRequestProperty("Accept", MediaType.APPLICATION_JSON_VALUE);
+
+        if (token != null && !token.isBlank()) {
+            conn.setRequestProperty("Authorization", token);
+        }
+
+        try (OutputStream os = conn.getOutputStream()) {
+            for (Map.Entry<?, ?> entry : multipartBody.entrySet()) {
+                if (!(entry.getKey() instanceof String fieldName)) {
+                    throw new IllegalArgumentException("Multipart field names must be strings");
+                }
+
+                Object value = entry.getValue();
+                if (value == null) {
+                    continue;
+                }
+
+                os.write(("--" + boundary + lineBreak).getBytes(StandardCharsets.UTF_8));
+
+                if (value instanceof File file) {
+                    String fileName = file.getName();
+                    String contentType = Files.probeContentType(file.toPath());
+                    if (contentType == null || contentType.isBlank()) {
+                        contentType = "application/octet-stream";
+                    }
+
+                    os.write(("Content-Disposition: form-data; name=\"" + fieldName + "\"; filename=\"" + fileName + "\"" + lineBreak).getBytes(StandardCharsets.UTF_8));
+                    os.write(("Content-Type: " + contentType + lineBreak).getBytes(StandardCharsets.UTF_8));
+                    os.write(lineBreak.getBytes(StandardCharsets.UTF_8));
+                    Files.copy(file.toPath(), os);
+                    os.write(lineBreak.getBytes(StandardCharsets.UTF_8));
+                } else {
+                    os.write(("Content-Disposition: form-data; name=\"" + fieldName + "\"" + lineBreak).getBytes(StandardCharsets.UTF_8));
+                    os.write(("Content-Type: text/plain; charset=UTF-8" + lineBreak).getBytes(StandardCharsets.UTF_8));
+                    os.write(lineBreak.getBytes(StandardCharsets.UTF_8));
+                    os.write(String.valueOf(value).getBytes(StandardCharsets.UTF_8));
+                    os.write(lineBreak.getBytes(StandardCharsets.UTF_8));
+                }
+            }
+
+            os.write(("--" + boundary + "--" + lineBreak).getBytes(StandardCharsets.UTF_8));
+        }
+
+        return readResponse(conn);
+    }
+
+
+    /**
+     * Sends an HTTP multipart/form-data POST request and deserializes the response into the specified type.
+     * The body must be a Map where File values are sent as file parts and other values are sent as text fields.
+     *
+     * @param <T>          the type of the response object
+     * @param urlString    the URL to which the POST request is sent
+     * @param body         the multipart request body as a map of form field names to values
+     * @param responseType the class type to deserialize the response into
+     * @param includeAuth  whether to include an authentication token in the request
+     * @return the deserialized response object of type T
+     * @throws Exception if an error occurs during connection, deserialization, or response processing
+     */
+    public <T> T postMultipart(String urlString, Map<String, Object> body, Class<T> responseType, boolean includeAuth) throws Exception {
+        String token = includeAuth ? getJwtToken() : null;
+        String response = postMultipart(urlString, body, token);
+        if (responseType == null || responseType == String.class) {
+            return (T) response;
+        }
         return objectMapper.readValue(response, responseType);
     }
 
@@ -187,13 +291,15 @@ public class HttpUtil {
      */
     @SuppressWarnings("unchecked")
     public Map<String, Object> getStructuredAiResponse(String hostBaseUrl, String context, String prompt, Map<String, String> schemaMap) throws Exception {
-        String url = hostBaseUrl + "/api/ai/structured";
-        Map<String, Object> request = new HashMap<>();
-        request.put("context", context);
-        request.put("prompt", prompt);
-        request.put("schema", schemaMap);
-        String response = post(url, objectMapper.writeValueAsString(request), String.class, true);
-        return objectMapper.readValue(response, Map.class);
+        try {
+            String url = hostBaseUrl + "/api/ai/structured";
+            StructuredAiRequestDto request = new StructuredAiRequestDto(context, prompt, schemaMap);
+            Map<String, Object> response = post(url, request, Map.class, true);
+            return response;
+        } catch (Exception e) {
+            e.printStackTrace();
+            throw new RuntimeException(e);
+        }
     }
 
     /* *************** */
@@ -218,7 +324,7 @@ public class HttpUtil {
             url = hostBaseUrl + "/api/ai/short";
             request.put("context", context);
         }
-        return post(url, objectMapper.writeValueAsString(request), String.class, true);
+        return post(url, request, String.class, true);
     }
 
     /**

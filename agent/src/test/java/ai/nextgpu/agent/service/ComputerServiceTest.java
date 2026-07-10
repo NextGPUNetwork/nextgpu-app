@@ -1,11 +1,16 @@
 package ai.nextgpu.agent.service;
 
+import ai.nextgpu.agent.repository.*;
 import ai.nextgpu.agent.util.BenchmarkUtil;
 import ai.nextgpu.agent.util.HardwareUtil;
 import ai.nextgpu.agent.util.HttpUtil;
+import ai.nextgpu.common.dto.ComputerAttributeTypeDto;
+import ai.nextgpu.common.dto.ComputerDto;
+import ai.nextgpu.common.dto.CreateComputerDto;
 import ai.nextgpu.common.model.*;
 import ai.nextgpu.common.report.BenchmarkReport;
 import ai.nextgpu.common.report.HardwareReport;
+import org.jetbrains.annotations.NotNull;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -15,24 +20,28 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
 public class ComputerServiceTest {
-
     @Mock private DataService dataService;
     @Mock private HardwareUtil hardwareUtil;
     @Mock private BenchmarkUtil benchmarkUtil;
     @Mock private HttpUtil httpUtil;
     @Mock private NextGpuWebService nextGpuWebService;
-
+    @Mock private ComputerAttributeTypeRepository computerAttributeTypeRepository;
+    @Mock private ComputerRepository computerRepository;
+    @Mock private GlobalPropertyRepository globalPropertyRepository;
     private ComputerService computerService;
-
     private final String loginWallet = "wallet-123";
 
     @BeforeEach
@@ -42,7 +51,10 @@ public class ComputerServiceTest {
                 hardwareUtil,
                 benchmarkUtil,
                 httpUtil,
-                nextGpuWebService
+                nextGpuWebService,
+                computerAttributeTypeRepository,
+                computerRepository,
+                globalPropertyRepository
         );
     }
 
@@ -178,5 +190,203 @@ public class ComputerServiceTest {
         verify(benchmarkUtil).benchmarkStorage(true);
         verify(dataService).saveBenchmarkReport(any(BenchmarkReport.class));
         verifyNoInteractions(httpUtil);
+    }
+
+    @Test
+    void generateComputerUsageReport_returnsUsageMap() {
+        when(hardwareUtil.readCurrentCpuTemperature()).thenReturn(50.0);
+        when(hardwareUtil.readCurrentCpuUsage()).thenReturn(10.0);
+
+        Map<String, Object> result = computerService.generateComputerUsageReport();
+
+        assertEquals(50.0, result.get("cpuTemperature"));
+        assertEquals(10.0, result.get("cpuUsage"));
+        verify(hardwareUtil).readCurrentCpuTemperature();
+        verify(hardwareUtil).readCurrentCpuUsage();
+    }
+
+    @Test
+    void saveComputer_NewComputer_CallsWebServiceAndSavesLocally() throws Exception {
+        Computer detectedHardware = new Computer();
+        detectedHardware.setType(ComputerType.PERSONAL_DESKTOP);
+        detectedHardware.setCpus(new HashSet<>());
+        detectedHardware.setGpus(new HashSet<>());
+        detectedHardware.setMemories(new HashSet<>());
+        detectedHardware.setStorages(new HashSet<>());
+        detectedHardware.setNetworkDevices(new HashSet<>());
+        detectedHardware.setOtherComponents(new HashSet<>());
+
+        Provider provider = new Provider();
+        provider.setWalletAddress(loginWallet);
+
+        when(computerRepository.findAll()).thenReturn(Collections.emptyList());
+        when(dataService.findProviderByWalletAddress(loginWallet)).thenReturn(provider);
+
+        ComputerDto responseDto = new ComputerDto();
+        responseDto.setUuid("new-uuid");
+        when(nextGpuWebService.createComputer(any(CreateComputerDto.class))).thenReturn(responseDto);
+
+        when(dataService.saveComputer(any(Computer.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        Computer result = computerService.saveComputer(detectedHardware, loginWallet);
+
+        assertNotNull(result);
+        assertEquals("new-uuid", result.getUuid());
+        assertEquals(provider, result.getProvider());
+        verify(nextGpuWebService).createComputer(any(CreateComputerDto.class));
+        verify(dataService).saveComputer(any(Computer.class));
+    }
+
+    @Test
+    void saveComputer_WithComponents_ResolvesAndDeduplicates() throws Exception {
+        Computer detectedHardware = new Computer();
+        detectedHardware.setType(ComputerType.SERVER);
+        
+        Cpu cpu = new Cpu();
+        cpu.setManufacturer("Intel");
+        cpu.setModel("i7");
+        detectedHardware.setCpus(Collections.singleton(cpu));
+        detectedHardware.setGpus(new HashSet<>());
+        detectedHardware.setMemories(new HashSet<>());
+        detectedHardware.setStorages(new HashSet<>());
+        detectedHardware.setNetworkDevices(new HashSet<>());
+        detectedHardware.setOtherComponents(new HashSet<>());
+
+        Provider provider = new Provider();
+        provider.setWalletAddress(loginWallet);
+
+        Computer localComputer = new Computer();
+        localComputer.setProvider(provider);
+
+        when(computerRepository.findAll()).thenReturn(Collections.singletonList(localComputer));
+        
+        ComputerDto responseDto = new ComputerDto();
+        responseDto.setUuid("uuid-123");
+        when(nextGpuWebService.createComputer(any(CreateComputerDto.class))).thenReturn(responseDto);
+
+        CpuRepository cpuRepository = mock(CpuRepository.class);
+        when(dataService.getCpuRepository()).thenReturn(cpuRepository);
+        when(cpuRepository.findByManufacturerAndModel("Intel", "i7")).thenReturn(Optional.empty());
+        when(dataService.saveCpu(any(Cpu.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        
+        // Mock other repositories to avoid NPE if they are called (though they should be empty in this test)
+        when(dataService.getGpuRepository()).thenReturn(mock(GpuRepository.class));
+        when(dataService.getMemoryModuleRepository()).thenReturn(mock(MemoryModuleRepository.class));
+        when(dataService.getStorageRepository()).thenReturn(mock(StorageRepository.class));
+        when(dataService.getNetworkDeviceRepository()).thenReturn(mock(NetworkDeviceRepository.class));
+
+        when(dataService.saveComputer(any(Computer.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        Computer result = computerService.saveComputer(detectedHardware, loginWallet);
+
+        assertNotNull(result);
+        assertEquals(1, result.getCpus().size());
+        verify(dataService).saveCpu(any(Cpu.class));
+        verify(dataService).saveComputer(any(Computer.class));
+    }
+
+    @Test
+    void saveComputer_whenWebServiceThrows_throwsRuntimeException() throws Exception {
+        Computer detectedHardware = new Computer();
+        detectedHardware.setCpus(new HashSet<>());
+        detectedHardware.setGpus(new HashSet<>());
+        detectedHardware.setMemories(new HashSet<>());
+        detectedHardware.setStorages(new HashSet<>());
+        detectedHardware.setNetworkDevices(new HashSet<>());
+        detectedHardware.setOtherComponents(new HashSet<>());
+
+        lenient().when(computerRepository.findAll()).thenReturn(Collections.emptyList());
+        lenient().when(dataService.findProviderByWalletAddress(anyString())).thenReturn(new Provider());
+        when(nextGpuWebService.createComputer(any())).thenThrow(new RuntimeException("API error"));
+
+        assertThrows(RuntimeException.class, () -> computerService.saveComputer(detectedHardware, loginWallet));
+    }
+
+    @Test
+    void saveComputer_withUnknownAttributes_skipsThem() throws Exception {
+        Computer detectedHardware = getTestHardware();
+
+        lenient().when(computerRepository.findAll()).thenReturn(Collections.emptyList());
+        lenient().when(dataService.findProviderByWalletAddress(loginWallet)).thenReturn(new Provider());
+        when(nextGpuWebService.createComputer(any())).thenReturn(new ComputerDto());
+        lenient().when(computerAttributeTypeRepository.findByName("unknown_attr")).thenReturn(Optional.empty());
+        lenient().when(dataService.getComputerAttributeTypeRepository()).thenReturn(computerAttributeTypeRepository);
+        lenient().when(dataService.saveComputer(any())).thenAnswer(i -> i.getArgument(0));
+
+        Computer result = computerService.saveComputer(detectedHardware, loginWallet);
+
+        assertTrue(result.getComputerAttributes().isEmpty());
+    }
+
+    private static @NotNull Computer getTestHardware() {
+        Computer detectedHardware = new Computer();
+        detectedHardware.setCpus(new HashSet<>());
+        detectedHardware.setGpus(new HashSet<>());
+        detectedHardware.setMemories(new HashSet<>());
+        detectedHardware.setStorages(new HashSet<>());
+        detectedHardware.setNetworkDevices(new HashSet<>());
+        detectedHardware.setOtherComponents(new HashSet<>());
+
+        ComputerAttributeType type = new ComputerAttributeType();
+        type.setName("unknown_attr");
+        detectedHardware.setComputerAttributes(Map.of(type, "value"));
+        return detectedHardware;
+    }
+
+    @Test
+    void saveComputer_withNullManufacturerOrModel_stillDeduplicates() throws Exception {
+        Computer detectedHardware = new Computer();
+        Cpu cpu1 = new Cpu();
+        cpu1.setManufacturer(null);
+        cpu1.setModel(null);
+        Cpu cpu2 = new Cpu();
+        cpu2.setManufacturer(null);
+        cpu2.setModel(null);
+        detectedHardware.setCpus(Set.of(cpu1, cpu2));
+        detectedHardware.setGpus(new HashSet<>());
+        detectedHardware.setMemories(new HashSet<>());
+        detectedHardware.setStorages(new HashSet<>());
+        detectedHardware.setNetworkDevices(new HashSet<>());
+        detectedHardware.setOtherComponents(new HashSet<>());
+
+        lenient().when(computerRepository.findAll()).thenReturn(Collections.emptyList());
+        lenient().when(dataService.findProviderByWalletAddress(loginWallet)).thenReturn(new Provider());
+        when(nextGpuWebService.createComputer(any())).thenReturn(new ComputerDto());
+        
+        CpuRepository cpuRepository = mock(CpuRepository.class);
+        lenient().when(dataService.getCpuRepository()).thenReturn(cpuRepository);
+        lenient().when(cpuRepository.findByManufacturerAndModel(null, null)).thenReturn(Optional.empty());
+        lenient().when(dataService.saveCpu(any())).thenAnswer(i -> i.getArgument(0));
+        
+        lenient().when(dataService.getGpuRepository()).thenReturn(mock(GpuRepository.class));
+        lenient().when(dataService.getMemoryModuleRepository()).thenReturn(mock(MemoryModuleRepository.class));
+        lenient().when(dataService.getStorageRepository()).thenReturn(mock(StorageRepository.class));
+        lenient().when(dataService.getNetworkDeviceRepository()).thenReturn(mock(NetworkDeviceRepository.class));
+        lenient().when(dataService.saveComputer(any())).thenAnswer(i -> i.getArgument(0));
+
+        Computer result = computerService.saveComputer(detectedHardware, loginWallet);
+
+        assertEquals(1, result.getCpus().size());
+    }
+
+    @Test
+    void saveComputerAttributeTypes_CallsRepository() {
+        ComputerAttributeTypeDto dto = new ComputerAttributeTypeDto();
+        dto.setName("LAST_AUDIT_STATUS");
+        dto.setDescription("Last audit status");
+        dto.setDatatype("java.lang.String");
+
+        List<ComputerAttributeTypeDto> types = Collections.singletonList(dto);
+
+        when(dataService.getComputerAttributeTypeRepository()).thenReturn(computerAttributeTypeRepository);
+
+        computerService.saveComputerAttributeTypes(types);
+
+        verify(computerAttributeTypeRepository).save(argThat(entity ->
+                entity != null
+                        && "LAST_AUDIT_STATUS".equals(entity.getName())
+                        && "Last audit status".equals(entity.getDescription())
+                        && "java.lang.String".equals(entity.getDatatype())
+        ));
     }
 }

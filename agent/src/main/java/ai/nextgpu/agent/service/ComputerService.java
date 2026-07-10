@@ -1,16 +1,13 @@
 package ai.nextgpu.agent.service;
 
+import ai.nextgpu.agent.config.GlobalPropertyConfig;
+import ai.nextgpu.agent.repository.ComputerAttributeTypeRepository;
+import ai.nextgpu.agent.repository.ComputerRepository;
+import ai.nextgpu.agent.repository.GlobalPropertyRepository;
 import ai.nextgpu.agent.util.BenchmarkUtil;
 import ai.nextgpu.agent.util.HardwareUtil;
 import ai.nextgpu.agent.util.HttpUtil;
-import ai.nextgpu.common.dto.ComputerDto;
-import ai.nextgpu.common.dto.CpuDto;
-import ai.nextgpu.common.dto.CreateComputerDto;
-import ai.nextgpu.common.dto.GenericComponentDto;
-import ai.nextgpu.common.dto.GpuDto;
-import ai.nextgpu.common.dto.MemoryModuleDto;
-import ai.nextgpu.common.dto.NetworkDeviceDto;
-import ai.nextgpu.common.dto.StorageDto;
+import ai.nextgpu.common.dto.*;
 import ai.nextgpu.common.model.*;
 import ai.nextgpu.common.report.BenchmarkReport;
 import ai.nextgpu.common.report.HardwareReport;
@@ -18,12 +15,15 @@ import ai.nextgpu.common.repository.BaseComponentRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.BeanUtils;
+import org.springframework.beans.BeansException;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDateTime;
 import java.util.*;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -41,6 +41,9 @@ public class ComputerService {
     private final BenchmarkUtil benchmarkUtil;
     private final HttpUtil httpUtil;
     private final NextGpuWebService nextGpuWebService;
+    private final ComputerAttributeTypeRepository computerAttributeTypeRepository;
+    private final ComputerRepository computerRepository;
+    private final GlobalPropertyRepository globalPropertyRepository;
 
     @Autowired
     public ComputerService(
@@ -48,12 +51,15 @@ public class ComputerService {
             @Lazy HardwareUtil hardwareUtil,
             @Lazy BenchmarkUtil benchmarkUtil,
             HttpUtil httpUtil,
-            NextGpuWebService nextGpuWebService) {
+            NextGpuWebService nextGpuWebService, ComputerAttributeTypeRepository computerAttributeTypeRepository, ComputerRepository computerRepository, GlobalPropertyRepository globalPropertyRepository) {
         this.dataService = dataService;
         this.hardwareUtil = hardwareUtil;
         this.benchmarkUtil = benchmarkUtil;
         this.httpUtil = httpUtil;
         this.nextGpuWebService = nextGpuWebService;
+        this.computerAttributeTypeRepository = computerAttributeTypeRepository;
+        this.computerRepository = computerRepository;
+        this.globalPropertyRepository = globalPropertyRepository;
     }
 
     /**
@@ -72,8 +78,7 @@ public class ComputerService {
         Map<String, Object> memory = benchmarkUtil.benchmarkMemory(quick);
         Map<String, Object> storage = benchmarkUtil.benchmarkStorage(quick);
         Map<String, Object> cpu = benchmarkUtil.benchmarkCpu();
-        Map<String, Object> network = null; //TODO
-        Map<String, Object> other = null; //TODO
+        Map<String, Object> network = benchmarkUtil.benchmarkNetwork(quick);
 
         BenchmarkReport benchmarkReport = new BenchmarkReport();
         benchmarkReport.setCpuBenchmarkResults(cpu);
@@ -81,14 +86,8 @@ public class ComputerService {
         benchmarkReport.setMemoryBenchmarkResults(memory);
         benchmarkReport.setStorageBenchmarkResults(storage);
         benchmarkReport.setNetworkBenchmarkResults(network);
-        benchmarkReport.setOtherBenchmarkResults(other);
         benchmarkReport.setProvider(dataService.findProviderByWalletAddress(loginWallet));
 
-        Computer computer = dataService.findAllComputers().stream()
-                .filter(c -> c.getProvider()
-                        .getWalletAddress()
-                        .equalsIgnoreCase(loginWallet)).findFirst().get();
-        benchmarkReport.setComputer(computer);
         benchmarkReport.setElapsedTime(System.currentTimeMillis() - startTime);
 
         return dataService.saveBenchmarkReport(benchmarkReport);
@@ -132,6 +131,9 @@ public class ComputerService {
         try {
             ComputerDto response = nextGpuWebService.createComputer(createComputerDto);
 
+            // Save computer UUID property
+            saveComputerUuidProperty(response.getUuid());
+
             // Resolve detected components to existing DB entities (dedupe) BEFORE attaching to the Computer.
             Set<Cpu> resolvedCpus = resolveComponents(detectedHardware.getCpus(), dataService::saveCpu, dataService.getCpuRepository());
             Set<Gpu> resolvedGpus = resolveComponents(detectedHardware.getGpus(), dataService::saveGpu, dataService.getGpuRepository());
@@ -140,9 +142,8 @@ public class ComputerService {
             Set<NetworkDevice> resolvedNetworkDevices = resolveComponents(detectedHardware.getNetworkDevices(), dataService::saveNetworkDevice, dataService.getNetworkDeviceRepository());
 
             Set<GenericComponent> resolvedGenericComponents = resolveGenericComponents(detectedHardware.getOtherComponents());
-            Map<ComputerAttributeType, String> resolvedComputerAttributes = resolveComputerAttributes(detectedHardware.getComputerAttributes());
+            Map<ComputerAttributeType, String> resolvedComputerAttributes = resolveRemoteComputerAttributes(response.getComputerAttributes());
 
-            BeanUtils.copyProperties(detectedHardware, localComputerEntity, "id", "uuid", "provider", "cpus", "gpus", "memories", "storages", "networkDevices", "otherComponents", "computerAttributes");
             localComputerEntity.setCpus(resolvedCpus);
             localComputerEntity.setGpus(resolvedGpus);
             localComputerEntity.setMemories(resolvedMemories);
@@ -151,13 +152,36 @@ public class ComputerService {
             localComputerEntity.setOtherComponents(resolvedGenericComponents);
             localComputerEntity.setComputerAttributes(resolvedComputerAttributes);
 
+            // Get the hardware type, name and operating system from detectedHardware
+            localComputerEntity.setName(detectedHardware.getName());
+            localComputerEntity.setOperatingSystem(detectedHardware.getOperatingSystem());
+            localComputerEntity.setType(detectedHardware.getType());
+
             // The UUID of the local computer entity must be the same as the one returned by the API
             localComputerEntity.setUuid(response.getUuid());
 
             return dataService.saveComputer(localComputerEntity);
         } catch (Exception e) {
-            throw new RuntimeException("Failed to detect and save hardware", e);
+            throw new RuntimeException("Unrecognized hardware detected.", e);
         }
+    }
+
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void saveComputerUuidProperty(String uuid) {
+        GlobalProperty newGlobalProperty = globalPropertyRepository.findByName(GlobalPropertyConfig.COMPUTER_UUID).orElse(new GlobalProperty());
+        newGlobalProperty.setName(GlobalPropertyConfig.COMPUTER_UUID);
+        newGlobalProperty.setDatatype("java.lang.String");
+        newGlobalProperty.setDescription("UUID of the computer saved remotely. Must be the same as the UUID of the computer saved locally.");
+        newGlobalProperty.setValueReference(uuid);
+        globalPropertyRepository.save(newGlobalProperty);
+    }
+
+    public Computer updateComputer(ComputerDto computerDto) {
+
+        Computer computer = computerRepository.findByUuid(computerDto.getUuid())
+                .orElseThrow(() -> new RuntimeException("Computer with UUID " + computerDto.getUuid() + " not found."));
+        computer.setComputerAttributes(this.resolveRemoteComputerAttributes(computerDto.getComputerAttributes()));
+        return dataService.saveComputer(computer);
     }
 
     private <T extends BaseComponent, D extends BaseComponent> Set<D> resolveComponents(
@@ -177,18 +201,24 @@ public class ComputerService {
 
         return uniqueByKey.values().stream()
                 .map(component -> {
-                    Optional<T> existing = repository
-                            .findByManufacturerAndModel(component.getManufacturer(), component.getModel());
+                    try {
+                        Optional<T> existing = repository
+                                .findByManufacturerAndModel(component.getManufacturer(), component.getModel());
 
-                    if(existing.isPresent()){
-                        T managed = existing.get();
-                        BeanUtils.copyProperties(component, managed, "id", "uuid", "computers");
-                        return saveComponent.apply(managed);
-                    } else {
-                        // First time seen: create once.
-                        return saveComponent.apply(component);
+                        if (existing.isPresent()) {
+                            T managed = existing.get();
+                            BeanUtils.copyProperties(component, managed, "id", "computers");
+                            return saveComponent.apply(managed);
+                        } else {
+                            // First time seen: create once.
+                            return saveComponent.apply(component);
+                        }
+                    } catch (Exception ignored) {
+                        return null;
                     }
-                }).collect(Collectors.toCollection(LinkedHashSet::new));
+                })
+                .filter(Objects::nonNull)
+                .collect(Collectors.toCollection(LinkedHashSet::new));
     }
 
     private String naturalKey(String manufacturer, String model) {
@@ -197,7 +227,7 @@ public class ComputerService {
         return m1 + "||" + m2;
     }
 
-    private Map<ComputerAttributeType, String> resolveComputerAttributes(
+    private Map<ComputerAttributeType, String> resolveLocalComputerAttributes(
             Map<ComputerAttributeType, String> detected) {
 
         if (detected == null || detected.isEmpty()) {
@@ -216,7 +246,7 @@ public class ComputerService {
                     hasText(key.getUuid())
                             ? dataService.getComputerAttributeTypeRepository().findByUuid(key.getUuid())
                             : hasText(key.getName())
-                            ? dataService.getComputerAttributeTypeRepository().findByNameIgnoreCase(key.getName())
+                            ? dataService.getComputerAttributeTypeRepository().findByName(key.getName())
                             : Optional.empty();
 
             if (canonical.isEmpty()) {
@@ -232,12 +262,34 @@ public class ComputerService {
         return resolved;
     }
 
+    private Map<ComputerAttributeType, String> resolveRemoteComputerAttributes(
+            Map<String, String> attributes) {
+
+        if (attributes == null || attributes.isEmpty()) {
+            return Collections.emptyMap();
+        }
+
+        Map<ComputerAttributeType, String> resolved = new LinkedHashMap<>();
+
+        for (Map.Entry<String, String> entry : attributes.entrySet()) {
+            ComputerAttributeType attributeType = dataService.getComputerAttributeTypeRepository()
+                    .findByName(entry.getKey()).orElse(null);
+
+            if (attributeType == null) continue;
+
+            String value = entry.getValue();
+            resolved.put(attributeType, value);
+        }
+
+        return resolved;
+    }
+
     /**
      * Enforces the "only one Computer entity locally" rule and returns it,
      * or creates a new one bound to the current provider.
      */
     private Computer loadOrCreateSingleLocalComputer(String loginWallet) {
-        List<Computer> computers = dataService.findAllComputers().stream()
+        List<Computer> computers = computerRepository.findAll().stream()
                 .filter(c -> c.getProvider()
                         .getWalletAddress()
                         .equalsIgnoreCase(loginWallet)
@@ -254,7 +306,13 @@ public class ComputerService {
         Provider provider = dataService.findProviderByWalletAddress(loginWallet);
         Computer computer = new Computer();
         computer.setProvider(provider);
-        computer.setUuid(null);
+        computer.setHardwareFingerprint(HardwareUtil.generateHardwareFingerprint());
+        GlobalProperty computerUuidProperty = globalPropertyRepository.findByName(GlobalPropertyConfig.COMPUTER_UUID).orElse(null);
+        if (computerUuidProperty != null) {
+            computer.setUuid(computerUuidProperty.getValueReference());
+        } else {
+            computer.setUuid("");
+        }
         return computer;
     }
 
@@ -267,9 +325,11 @@ public class ComputerService {
     private CreateComputerDto buildCreateComputerDto(String loginWallet, Computer localComputerEntity, Computer detectedHardware) {
         CreateComputerDto dto = new CreateComputerDto();
         dto.setWalletAddress(loginWallet);
-        dto.setUuid(localComputerEntity.getUuid()); // null on the first creation, non-null on subsequent syncs
-
-        dto.setType(detectedHardware.getType());
+        // Extract from localComputerEntity
+        dto.setUuid(localComputerEntity.getUuid()); // Empty on the first creation, non-empty on later syncs
+        dto.setHardwareFingerprint(localComputerEntity.getHardwareFingerprint()); // localComputerEntity get the fingerprint in case it was not set before
+        // Extract from detectedHardware
+        dto.setType(detectedHardware.getType() != null ? detectedHardware.getType() : ComputerType.UNKNOWN);
         dto.setOperatingSystem(detectedHardware.getOperatingSystem());
         dto.setCpus(detectedHardware.getCpus().stream().map(CpuDto::toDto).toList());
         dto.setGpus(detectedHardware.getGpus().stream().map(GpuDto::toDto).toList());
@@ -292,26 +352,36 @@ public class ComputerService {
 
         return uniqueByKey.values().stream()
                 .map(gc -> {
-                    Optional<GenericComponent> existing;
+                    try {
+                        // Truncate description to 255 characters
+                        if (gc.getDescription() != null && gc.getDescription().length() > 255) {
+                            gc.setDescription(gc.getDescription().substring(0, 255));
+                        }
 
-                    if (hasText(gc.getProductIdentifier())) {
-                        existing = dataService.getGenericComponentRepository()
-                                .findByTypeAndProductIdentifier(gc.getType(), gc.getProductIdentifier());
-                    } else {
-                        existing = dataService.getGenericComponentRepository()
-                                .findByFingerprint(gc.getType(), gc.getManufacturer(), gc.getModel(), gc.getName(),
-                                        gc.getSpecificationKey(), gc.getSpecificationValue());
+                        Optional<GenericComponent> existing;
+
+                        if (hasText(gc.getProductIdentifier())) {
+                            existing = dataService.getGenericComponentRepository()
+                                    .findByTypeAndProductIdentifier(gc.getType(), gc.getProductIdentifier());
+                        } else {
+                            existing = dataService.getGenericComponentRepository()
+                                    .findByFingerprint(gc.getType(), gc.getManufacturer(), gc.getModel(), gc.getName(),
+                                            gc.getSpecificationKey(), gc.getSpecificationValue());
+                        }
+
+                        if (existing.isPresent()) {
+                            GenericComponent managed = existing.get();
+                            // full refresh of mutable fields; keep identity fields
+                            BeanUtils.copyProperties(gc, managed, "id", "computers");
+                            return dataService.saveGenericComponent(managed);
+                        }
+
+                        return dataService.saveGenericComponent(gc);
+                    } catch (BeansException e) {
+                        return null;
                     }
-
-                    if (existing.isPresent()) {
-                        GenericComponent managed = existing.get();
-                        // full refresh of mutable fields; keep identity fields
-                        BeanUtils.copyProperties(gc, managed, "id", "uuid", "computers");
-                        return dataService.saveGenericComponent(managed);
-                    }
-
-                    return dataService.saveGenericComponent(gc);
                 })
+                .filter(Objects::nonNull)
                 .collect(Collectors.toCollection(LinkedHashSet::new));
     }
 
@@ -383,5 +453,30 @@ public class ComputerService {
         // Save and return the report
         HardwareReport hardwareReport = report; //TODO: enable after the previous TODO is done dataService.saveHardwareReport(report);
         return hardwareReport;
+    }
+
+    //*******************************//
+    // ** Computer Attribute Type ** //
+    //*******************************//
+
+
+    public void saveComputerAttributeTypes(List<ComputerAttributeTypeDto> computerAttributeTypes) {
+        log.debug("Saving computer attribute types: {}", computerAttributeTypes);
+        ComputerAttributeTypeRepository computerAttributeTypeRepository = dataService.getComputerAttributeTypeRepository();
+        for (ComputerAttributeTypeDto attributeTypeDto : computerAttributeTypes) {
+            ComputerAttributeType attributeType = computerAttributeTypeRepository
+                    .findByUuid(attributeTypeDto.getUuid())
+                    .orElseGet(ComputerAttributeType::new);
+
+            attributeType.setName(attributeTypeDto.getName());
+            attributeType.setUuid(attributeTypeDto.getUuid());
+            attributeType.setDescription(attributeTypeDto.getDescription());
+            attributeType.setDatatype(attributeTypeDto.getDatatype());
+            attributeType.setIsMandatory(attributeTypeDto.getIsMandatory());
+            attributeType.setIsUnique(attributeTypeDto.getIsUnique());
+            attributeType.setValidationRegex(attributeTypeDto.getValidationRegex());
+
+            computerAttributeTypeRepository.save(attributeType);
+        }
     }
 }

@@ -12,5 +12,6 @@ public class JsonUtil {
             .configure(SerializationFeature.FAIL_ON_EMPTY_BEANS, false)
             .configure(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS, false)
             .registerModule(new JavaTimeModule())
-            .registerModule(new ComputerAttributeTypeKeyModule());
+            .registerModule(new ComputerAttributeTypeKeyModule())
+            .registerModule(new ProviderAttributeTypeKeyModule());
 }

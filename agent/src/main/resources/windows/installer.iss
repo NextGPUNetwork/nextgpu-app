@@ -1,5 +1,5 @@
 #define MyAppName "NextGPU"
-#define MyAppVersion "0.1.1"
+#define MyAppVersion "0.2.0"
 #define MyAppPublisher "NextGPU"
 #define MyAppURL "https://nextgpu.ai"
 #define MyAppExeName "NextGPU.exe"

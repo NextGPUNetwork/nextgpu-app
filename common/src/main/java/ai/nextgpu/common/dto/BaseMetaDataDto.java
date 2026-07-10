@@ -17,6 +17,8 @@ public class BaseMetaDataDto {
 
     private String name;
 
+    private String description;
+
     private String datatype;
 
     private Integer version;

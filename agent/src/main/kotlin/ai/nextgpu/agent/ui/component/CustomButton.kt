@@ -47,31 +47,32 @@ fun CustomButton(
     shape: Shape = RoundedCornerShape(RadiusRound),
     backgroundColor: Color = NextGpuTheme.colors.primary,
     textColor: Color = NextGpuTheme.colors.textPrimary,
-    // Nullable props: If null, it automatically lightens the base color
     hoverBackgroundColor: Color? = null,
     hoverTextColor: Color? = null,
     disabledBackgroundColor: Color = backgroundColor.copy(alpha = 0.5f),
     disabledTextColor: Color = textColor.copy(alpha = 0.5f),
     borderColor: Color? = null,
     contentPadding: PaddingValues = PaddingValues(horizontal = SpacingExtraLarge, vertical = SpacingSmall),
-    elevation: Boolean = true
+    elevation: Boolean = true,
+    // OVERRIDE PARAMETERS
+    textStyle: androidx.compose.ui.text.TextStyle = MaterialTheme.typography.body1,
+    iconSize: androidx.compose.ui.unit.Dp = IconSizeSmall,
+    iconOnlySize: androidx.compose.ui.unit.Dp = IconSizeMedium,
+    horizontalArrangement: Arrangement.Horizontal = Arrangement.Center
 ) {
-    // Track hover state manually
     val interactionSource = remember { MutableInteractionSource() }
     val isHovered by interactionSource.collectIsHoveredAsState()
 
-    // Smart defaults: Fall back to lightened version if no specific hover color is provided
     val targetHoverBg = hoverBackgroundColor ?: backgroundColor.lighten(0.15f)
     val targetHoverText = hoverTextColor ?: textColor
 
-    // Smoothly animate the colors
     val currentBgColor by animateColorAsState(
         targetValue = when {
             !enabled -> disabledBackgroundColor
             isHovered -> targetHoverBg
             else -> backgroundColor
         },
-        animationSpec = tween(durationMillis = 150) // Crisp, snappy fade
+        animationSpec = tween(durationMillis = 150)
     )
 
     val currentTextColor by animateColorAsState(
@@ -83,14 +84,12 @@ fun CustomButton(
         animationSpec = tween(durationMillis = 150)
     )
 
-    // Using Surface instead of Button to completely bypass Material's ripple engine
     Surface(
         modifier = modifier
-            // This sets the cursor to a pointer hand when enabled, and default arrow when disabled
             .pointerHoverIcon(if (enabled) PointerIcon.Hand else PointerIcon.Default)
             .clickable(
                 interactionSource = interactionSource,
-                indication = null, // THIS kills the default glass/ripple effect
+                indication = null,
                 enabled = enabled,
                 onClick = onClick
             ),
@@ -102,34 +101,47 @@ fun CustomButton(
     ) {
         Row(
             modifier = Modifier.padding(contentPadding),
-            horizontalArrangement = Arrangement.Center,
+            horizontalArrangement = horizontalArrangement,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            if (icon != null && iconPosition == IconPosition.Start) {
+            val isIconOnly = text.isEmpty()
+
+            if (isIconOnly && icon != null) {
+                // Icon only mode
                 Icon(
                     painter = icon,
                     contentDescription = null,
-                    modifier = Modifier.size(IconSizeSmall),
+                    modifier = Modifier.size(iconOnlySize),
                     tint = currentTextColor
                 )
-                Spacer(modifier = Modifier.width(SpacingSmall))
-            }
+            } else {
+                // Standard mode
+                if (icon != null && iconPosition == IconPosition.Start) {
+                    Icon(
+                        painter = icon,
+                        contentDescription = null,
+                        modifier = Modifier.size(iconSize),
+                        tint = currentTextColor
+                    )
+                    Spacer(modifier = Modifier.width(SpacingSmall))
+                }
 
-            Text(
-                text = text,
-                style = MaterialTheme.typography.body1,
-                color = currentTextColor,
-                modifier = Modifier.padding(bottom = 2.dp)
-            )
-
-            if (icon != null && iconPosition == IconPosition.End) {
-                Spacer(modifier = Modifier.width(SpacingSmall))
-                Icon(
-                    painter = icon,
-                    contentDescription = null,
-                    modifier = Modifier.size(IconSizeSmall),
-                    tint = currentTextColor
+                Text(
+                    text = text,
+                    style = textStyle,
+                    color = currentTextColor,
+                    modifier = Modifier.padding(bottom = 2.dp)
                 )
+
+                if (icon != null && iconPosition == IconPosition.End) {
+                    Spacer(modifier = Modifier.width(SpacingSmall))
+                    Icon(
+                        painter = icon,
+                        contentDescription = null,
+                        modifier = Modifier.size(iconSize),
+                        tint = currentTextColor
+                    )
+                }
             }
         }
     }

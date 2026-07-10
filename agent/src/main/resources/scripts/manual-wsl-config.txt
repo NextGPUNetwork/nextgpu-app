@@ -90,6 +90,74 @@ EOF
 
 sudo systemctl daemon-reload && sudo systemctl enable comfyui && sudo systemctl restart comfyui
 
+# Install stt tool
+sudo mkdir -p /opt/nextgpu/stt-tool /opt/nextgpu/stt-tool/models/small
+sudo chown -R nextgpu:nextgpu /opt/nextgpu/stt-tool
+
+if [ ! -d /opt/nextgpu/stt-tool/.git ]; then
+    git clone https://github.com/NextGPUNetwork/nextgpu-stt-tool /opt/nextgpu/stt-tool
+fi
+
+Use this updated version. It checks for the final file first; if it already exists, it skips that URL and moves to the next one:
+
+sudo sh -c '
+set -e
+MODEL_DIR=/opt/nextgpu/stt-tool/models/small
+mkdir -p "$MODEL_DIR"
+
+for url in \
+  https://huggingface.co/Systran/faster-whisper-small/resolve/main/model.bin \
+  https://huggingface.co/Systran/faster-whisper-small/resolve/main/config.json \
+  https://huggingface.co/Systran/faster-whisper-small/resolve/main/tokenizer.json \
+  https://huggingface.co/Systran/faster-whisper-small/resolve/main/vocabulary.txt
+do
+  filename="$(basename "$url")"
+  target="$MODEL_DIR/$filename"
+  part="$target.part"
+
+  if [ -f "$target" ]; then
+    echo "Skipping $filename; already downloaded."
+    continue
+  fi
+
+  wget -O "$part" "$url"
+  mv -f "$part" "$target"
+done
+'
+
+
+cd /opt/nextgpu/stt-tool
+
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements.txt
+
+#### Service to run the stt tool
+
+cat << 'EOF' | sudo tee /etc/systemd/system/nextgpu-stt-tool.service > /dev/null
+[Unit]
+Description=NextGPU STT Tool service
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=nextgpu
+Group=nextgpu
+WorkingDirectory=/opt/nextgpu/stt-tool
+Environment=HOST=0.0.0.0
+Environment=PORT=8177
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/opt/nextgpu/stt-tool/.venv/bin/python -m src.app
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+sudo systemctl daemon-reload && sudo systemctl enable nextgpu-stt-tool && sudo systemctl restart nextgpu-stt-tool
+
 # Verify services
 systemctl is-active --quiet ollama && echo "ollama-active"
 systemctl is-active --quiet comfyui && echo "comfyui-active"
@@ -105,3 +173,6 @@ netsh interface portproxy add v4tov4 listenaddress=127.0.0.1 listenport=8188 con
 
 netsh interface portproxy delete v4tov4 listenaddress=127.0.0.1 listenport=11434
 netsh interface portproxy add v4tov4 listenaddress=127.0.0.1 listenport=11434 connectaddress=<IP> connectport=11434
+
+netsh interface portproxy delete v4tov4 listenaddress=127.0.0.1 listenport=8177
+netsh interface portproxy add v4tov4 listenaddress=127.0.0.1 listenport=8177 connectaddress=<IP> connectport=8177

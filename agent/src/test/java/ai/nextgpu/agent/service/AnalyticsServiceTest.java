@@ -5,11 +5,13 @@ import ai.nextgpu.agent.repository.CpuRepository;
 import ai.nextgpu.agent.util.HardwareUtil;
 import ai.nextgpu.common.model.Cpu;
 import ai.nextgpu.common.model.PosthogEvent;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
+import org.mockito.MockedStatic;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.redis.core.HashOperations;
 import org.springframework.data.redis.core.RedisTemplate;
@@ -24,33 +26,38 @@ import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
 class AnalyticsServiceTest {
-    
+
     @Mock
     private CpuRepository cpuRepository;
-
     @Mock
     private RedisTemplate<String, Object> redisTemplate;
-
     @Mock
     private HashOperations<String, Object, Object> hashOperations;
-
     @Mock
     private NextGpuWebService nextGpuWebService;
-    @Mock
-    HardwareUtil hardwareUtil;
-
+    private MockedStatic<HardwareUtil> hardwareUtilMock;
     private AnalyticsService analyticsService;
 
     @BeforeEach
     void setUp() {
+        hardwareUtilMock = mockStatic(HardwareUtil.class);
+
+        hardwareUtilMock.when(HardwareUtil::generateHardwareFingerprint)
+                .thenReturn("machine-hash");
+
         lenient().when(redisTemplate.opsForHash()).thenReturn(hashOperations);
 
-        Cpu cpu = new Cpu();
-        cpu.setManufacturer("Intel");
-        cpu.setProductIdentifier("CM8071505120474");
-        when(cpuRepository.findAll()).thenReturn(List.of(cpu));
+        analyticsService = new AnalyticsService(
+                cpuRepository,
+                redisTemplate,
+                nextGpuWebService,
+                mock(HardwareUtil.class)
+        );
+    }
 
-        analyticsService = new AnalyticsService(cpuRepository, redisTemplate, nextGpuWebService, hardwareUtil);
+    @AfterEach
+    void tearDown() {
+        hardwareUtilMock.close();
     }
 
     @Test
@@ -63,15 +70,25 @@ class AnalyticsServiceTest {
 
         analyticsService.sendAnalyticsEventsPeriodically();
 
-        verify(nextGpuWebService).postEventDataInBatch(anyString(), anyMap());
+        verify(nextGpuWebService).postEventDataInBatch(eq("machine-hash"), anyMap());
         verify(redisTemplate).delete("analytics:events");
     }
 
     @Test
     void testNotifyApplicationUpTime() {
         GlobalPropertyConfig.APPLICATION_UP_TIMESTAMP = System.currentTimeMillis() - 5000;
+        when(hashOperations.entries("analytics:events"))
+                .thenReturn(Map.of(
+                        "id1",
+                        Map.of(
+                                PosthogEvent.APPLICATION_UPTIME.name(),
+                                Map.of("app_uptime_duration", 5000L)
+                        )
+                ));
 
         analyticsService.notifyApplicationUpTime();
+
+
 
         ArgumentCaptor<Object> eventCaptor = ArgumentCaptor.forClass(Object.class);
         verify(hashOperations).put(eq("analytics:events"), anyString(), eventCaptor.capture());
@@ -114,18 +131,5 @@ class AnalyticsServiceTest {
     void testNotifyCrashReport_Null() {
         analyticsService.notifyCrashReport(null);
         verifyNoInteractions(hashOperations);
-    }
-
-    @Test
-    void testGenerateHash() {
-        String hash = analyticsService.generateHash("Intel", "12345");
-        assertNotNull(hash);
-        assertEquals(64, hash.length());
-
-        String hash2 = analyticsService.generateHash(" Intel ", " 12345 ");
-        assertEquals(hash, hash2);
-
-        String hash3 = analyticsService.generateHash(null, null);
-        assertNotNull(hash3);
     }
 }

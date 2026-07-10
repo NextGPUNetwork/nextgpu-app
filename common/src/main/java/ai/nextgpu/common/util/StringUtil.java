@@ -1,5 +1,6 @@
 package ai.nextgpu.common.util;
 
+import org.apache.commons.text.similarity.CosineSimilarity;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.apache.commons.text.similarity.JaroWinklerDistance;
@@ -9,6 +10,8 @@ import org.springframework.stereotype.Component;
 
 import java.math.BigInteger;
 import java.util.Base64;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Random;
 
 /**
@@ -106,6 +109,14 @@ public class StringUtil {
         return randomCode.toString();
     }
 
+    /**
+     * Converts a BigInteger to a string representation in a specified base using the provided charset.
+     * This is a helper method for base conversion operations.
+     *
+     * @param number the BigInteger number to convert
+     * @param charset the character set to use for the base representation
+     * @return the string representation of the number in the specified base
+     */
     private static String toBaseN(java.math.BigInteger number, String charset) {
         StringBuilder result = new StringBuilder();
         BigInteger base = BigInteger.valueOf(charset.length());
@@ -154,14 +165,35 @@ public class StringUtil {
         }
     }
 
+    /**
+     * Decodes a Base64-encoded string to a byte array.
+     *
+     * @param base64String the Base64-encoded string to decode
+     * @return the decoded byte array
+     */
     public static byte[] base64ToBytes(String base64String) {
         return Base64.getDecoder().decode(base64String);
     }
 
+    /**
+     * Encodes a byte array to a Base64-encoded string.
+     *
+     * @param byteArray the byte array to encode
+     * @return the Base64-encoded string
+     */
     public static String bytesToBase64(byte[] byteArray) {
         return Base64.getEncoder().encodeToString(byteArray);
     }
 
+    /**
+     * Calculates the Levenshtein distance between two strings, representing the minimum number
+     * of single-character edits (insertions, deletions, substitutions) required to change one
+     * string into the other. Returns 0.0 for null or blank inputs, 1.0 for identical strings.
+     *
+     * @param a the first string to compare
+     * @param b the second string to compare
+     * @return the Levenshtein distance as a double value
+     */
     public static double getLevenshteinDistance(String a, String b) {
         if (a == null || a.isBlank() || b == null || b.isBlank()) return 0.0;
         if (a.equals(b)) return 1.0;
@@ -169,9 +201,43 @@ public class StringUtil {
         return LevenshteinDistance.getDefaultInstance().apply(a, b);
     }
 
+    /**
+     * Calculates the Jaro-Winkler distance between two strings, a string similarity metric that
+     * gives more favorable ratings to strings with common prefixes. The distance ranges from 0.0
+     * (no similarity) to 1.0 (identical strings). Returns 0.0 for null or blank inputs.
+     *
+     * @param a the first string to compare
+     * @param b the second string to compare
+     * @return the Jaro-Winkler distance as a double value between 0.0 and 1.0
+     */
     public static double getJaroWinklerDistance(String a, String b) {
         if (a == null || a.isBlank() || b == null || b.isBlank()) return 0.0;
         if (a.equals(b)) return 1.0;
         return new JaroWinklerDistance().apply(a, b);
+    }
+
+    /**
+     * Computes the cosine similarity between two strings using term frequencies.
+     * The strings are tokenized on whitespace after converting to lowercase.
+     * Cosine similarity ranges from: 1.0 = identical token distribution to 0.0 = no tokens in common
+     *
+     * @param a First string.
+     * @param b Second string.
+     * @return Cosine similarity in the range [0.0, 1.0].
+     */
+    public static double getCosineSimilarity(String a, String b) {
+        if (a == null || b == null) {
+            return 0.0;
+        }
+        Map<CharSequence, Integer> leftVector = new HashMap<>();
+        Map<CharSequence, Integer> rightVector = new HashMap<>();
+
+        for (String token : a.toLowerCase().split("\\s+")) {
+            leftVector.merge(token, 1, Integer::sum);
+        }
+        for (String token : b.toLowerCase().split("\\s+")) {
+            rightVector.merge(token, 1, Integer::sum);
+        }
+        return new CosineSimilarity().cosineSimilarity(leftVector, rightVector);
     }
 }

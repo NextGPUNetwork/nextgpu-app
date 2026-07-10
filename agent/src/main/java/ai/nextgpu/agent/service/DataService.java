@@ -10,6 +10,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
@@ -37,6 +38,7 @@ public class DataService {
     private final NetworkDeviceRepository networkDeviceRepository;
     private final StorageRepository storageRepository;
     private final ProviderRepository providerRepository;
+    private final ProviderAttributeTypeRepository providerAttributeTypeRepository;
     private final ComputerAttributeTypeRepository computerAttributeTypeRepository;
 
     @Autowired
@@ -51,7 +53,7 @@ public class DataService {
             MemoryModuleRepository memoryModuleRepository,
             NetworkDeviceRepository networkDeviceRepository,
             StorageRepository storageRepository,
-            ProviderRepository providerRepository, ComputerAttributeTypeRepository computerAttributeTypeRepository) {
+            ProviderRepository providerRepository, ProviderAttributeTypeRepository providerAttributeTypeRepository, ComputerAttributeTypeRepository computerAttributeTypeRepository) {
         this.benchmarkReportRepository = benchmarkReportRepository;
         this.computerRepository = computerRepository;
         this.cpuRepository = cpuRepository;
@@ -63,6 +65,7 @@ public class DataService {
         this.networkDeviceRepository = networkDeviceRepository;
         this.storageRepository = storageRepository;
         this.providerRepository = providerRepository;
+        this.providerAttributeTypeRepository = providerAttributeTypeRepository;
         this.computerAttributeTypeRepository = computerAttributeTypeRepository;
     }
 
@@ -94,6 +97,17 @@ public class DataService {
     @Transactional(readOnly = true)
     public Optional<Computer> findComputerById(Long id) {
         return computerRepository.findById(id);
+    }
+
+    /**
+     * Find a computer by its UUID.
+     *
+     * @param uuid the UUID of the computer to find
+     * @return an Optional containing the computer if found, or empty if not found
+     */
+    @Transactional(readOnly = true)
+    public Optional<Computer> findComputerByUuid(String uuid) {
+        return computerRepository.findByUuid(uuid);
     }
 
     /**
@@ -898,13 +912,18 @@ public class DataService {
      * Save a provider entity.
      *
      * @param provider the provider to save
-     * @return the saved provider
      */
     @Transactional
-    public Provider saveProvider(Provider provider) {
+    public void saveProvider(Provider provider) {
         log.debug("Saving provider: {}", provider);
-        return providerRepository.save(provider);
+        providerRepository.save(provider);
     }
+
+    public void saveProviderAttributeTypes(List<ProviderAttributeType> providerAttributeTypes) {
+        log.debug("Saving provider attribute types: {}", providerAttributeTypes);
+        providerAttributeTypeRepository.saveAll(providerAttributeTypes);
+    }
+
 
     /**
      * Find provider by walletAddress.

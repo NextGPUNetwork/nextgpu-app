@@ -144,10 +144,10 @@ public class OSUtil {
 
         String randomPart = UUID.randomUUID().toString().replace("-", "").substring(0, 10);
 
-        return upper.charAt((int)(Math.random() * upper.length())) + "" +
-                lower.charAt((int)(Math.random() * lower.length())) + "" +
-                digits.charAt((int)(Math.random() * digits.length())) + "" +
-                special.charAt((int)(Math.random() * special.length())) + "" +
+        return upper.charAt((int) (Math.random() * upper.length())) + "" +
+                lower.charAt((int) (Math.random() * lower.length())) + "" +
+                digits.charAt((int) (Math.random() * digits.length())) + "" +
+                special.charAt((int) (Math.random() * special.length())) + "" +
                 randomPart;
     }
 
@@ -335,13 +335,15 @@ public class OSUtil {
      * designed to run on Windows operating systems and uses administrative privileges to execute.
      *
      * @param overwriteExisting A boolean flag indicating whether to overwrite an existing WSL
-     *                          installation if detected. When set to true, the installation
-     *                          forcibly overwrites the current WSL configuration.
+     * installation if detected. When set to true, the installation
+     * forcibly overwrites the current WSL configuration.
+     * @param installProfile    The selected installation path (e.g., "provider" or "ai_hub") to
+     * dictate which components the PowerShell script should install.
      * @throws IOException If required resources, such as scripts or credentials, cannot be found,
-     *                     extracted, or executed. This includes issues like missing credential files
-     *                     or errors during script extraction from the application resources.
+     * extracted, or executed. This includes issues like missing credential files
+     * or errors during script extraction from the application resources.
      */
-    public static void startPrerequisitesInstallAsync(boolean overwriteExisting) throws IOException {
+    public static void startPrerequisitesInstallAsync(boolean overwriteExisting, String installProfile) throws IOException {
         if (!IS_WINDOWS) {
             log.error("This installation method is currently only supported on Windows.");
             return;
@@ -368,13 +370,19 @@ public class OSUtil {
 
         // Construct the async, elevated, hidden PowerShell command pointing to the Temp directory
         String args = "-ExecutionPolicy Bypass -File \\\"" + tempScriptPath.toString() + "\\\"";
+
         if (overwriteExisting) {
             args += " -OverwriteExistingWsl";
         }
 
+        // Append the installation profile parameter if provided
+        if (installProfile != null && !installProfile.isBlank()) {
+            args += " -InstallProfile " + installProfile;
+        }
+
         String psCommand = "Start-Process powershell.exe -ArgumentList '" + args + "' -Verb RunAs -WindowStyle Hidden";
 
-        log.info("Starting background installation: {}", psCommand);
+        log.info("Starting background installation for profile [{}]: {}", installProfile, psCommand);
 
         // Start the process and immediately return (do not use .waitFor())
         new ProcessBuilder("powershell.exe", "-NoProfile", "-Command", psCommand).start();
@@ -652,7 +660,7 @@ public class OSUtil {
             throws IOException, InterruptedException {
         // Ensure the Ollama service is running
         setupOllamaContainer(distro, username, password);
-        
+
         String modelList = getModelList(distro, username, password);
         // If the model name is found, don't trigger a new download / run
         if (modelList.contains(modelName)) {
@@ -688,7 +696,7 @@ public class OSUtil {
         }
         try {
             log.info("Starting WSL distribution '{}' for user '{}'...", distro, username);
-            
+
             // Check if keep-alive is already running
             if (keepAliveProcess != null && keepAliveProcess.isAlive()) {
                 log.info("WSL keep-alive process is already running.");
@@ -697,7 +705,7 @@ public class OSUtil {
                 // We run sleep infinity WITHOUT & and keep the Process object alive in Java.
                 // This ensures WSL distribution stays 'Running'.
                 keepAliveProcess = new ProcessBuilder("wsl", "-u", username, "-d", distro, "--", "sleep", "infinity").start();
-                
+
                 // Give it a moment to start
                 Thread.sleep(1000);
             }
@@ -743,14 +751,20 @@ public class OSUtil {
         // TODO: Externalize these
         int ollamaPort = 11434;
         int comfyPort = 8188;
+        int sttToolPort = 8177;
 
         // Reset proxies
         executeCommand("netsh interface portproxy delete v4tov4 listenaddress=127.0.0.1 listenport=" + ollamaPort);
         executeCommand("netsh interface portproxy delete v4tov4 listenaddress=127.0.0.1 listenport=" + comfyPort);
+        executeCommand("netsh interface portproxy delete v4tov4 listenaddress=127.0.0.1 listenport=" + sttToolPort);
 
         // Add fresh proxies
-        executeCommand("netsh interface portproxy add v4tov4 listenaddress=127.0.0.1 listenport=" + ollamaPort + " connectaddress=" + wslIp + " connectport=" + ollamaPort);
-        executeCommand("netsh interface portproxy add v4tov4 listenaddress=127.0.0.1 listenport=" + comfyPort + " connectaddress=" + wslIp + " connectport=" + comfyPort);
+        executeCommand("netsh interface portproxy add v4tov4 listenaddress=127.0.0.1 listenport=" + ollamaPort +
+                " connectaddress=" + wslIp + " connectport=" + ollamaPort);
+        executeCommand("netsh interface portproxy add v4tov4 listenaddress=127.0.0.1 listenport=" + comfyPort +
+                " connectaddress=" + wslIp + " connectport=" + comfyPort);
+        executeCommand("netsh interface portproxy add v4tov4 listenaddress=127.0.0.1 listenport=" + sttToolPort +
+                " connectaddress=" + wslIp + " connectport=" + sttToolPort);
 
         // Optional: wait a bit for Windows to apply portproxy changes
         Thread.sleep(3000);
@@ -761,7 +775,10 @@ public class OSUtil {
         if (isTcpPortBusy("127.0.0.1", comfyPort)) {
             log.warn("Port {} not reachable after proxy refresh.", comfyPort);
         }
-        log.info("Portproxy refreshed -> localhost:{} and localhost:{} now point to {}", ollamaPort, comfyPort, wslIp);
+        if (isTcpPortBusy("127.0.0.1", sttToolPort)) {
+            log.warn("Port {} not reachable after proxy refresh.", sttToolPort);
+        }
+        log.info("Portproxy refreshed -> localhost:{}, localhost:{} and localhost:{} now point to {}", ollamaPort, comfyPort, sttToolPort, wslIp);
     }
 
     /**
@@ -924,6 +941,31 @@ public class OSUtil {
             }
         } catch (Exception e) {
             log.warn("Failed to extract OpenClaw gateway token: {}", e.getMessage());
+        }
+        return null;
+    }
+
+    /**
+     * Retrieves the IP address of the WSL distribution for use with network services like Ollama.
+     * This method is used to construct URLs for accessing services running inside WSL from the Windows host.
+     *
+     * @param distro the WSL distribution name
+     * @param username the WSL username
+     * @return the IP address of the distro, or null if unable to retrieve
+     */
+    public static String getLocalIpAddress(String distro, String username) {
+        if (IS_WINDOWS) {
+            try {
+                String rawIp = executeCommandInWsl("hostname -I | awk '{print $1}'", distro, username);
+                if (rawIp.isBlank()) {
+                    log.warn("Failed to retrieve local IP for distro '{}': empty response", distro);
+                    return null;
+                }
+                log.info("Retrieved local IP for distro '{}': {}", distro, rawIp.trim());
+                return rawIp.trim();
+            } catch (IOException | InterruptedException e) {
+                log.warn("Failed to retrieve local IP for distro '{}': {}", distro, e.getMessage());
+            }
         }
         return null;
     }

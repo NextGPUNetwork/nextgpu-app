@@ -12,6 +12,12 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import java.io.IOException;
+import java.io.InputStream;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.regex.Matcher;
@@ -178,8 +184,8 @@ public class BenchmarkUtil {
 
     public Map<String, Object> benchmarkGpu() {
         Map<String, Object> allResults = new HashMap<>();
+        Map<String, Object> scores = new HashMap<>();
         try {
-            Map<String, Object> scores = new HashMap<>();
             String prompt = """
                 Write technical explanation of how modern GPUs accelerate large language model inference.
                 Structure the response in the following sections:
@@ -207,11 +213,14 @@ public class BenchmarkUtil {
             scores.put("elapsedTime", elapsedTime);
             scores.put("tokens_per_second", tokensPerSecond);
 
-            // Parse the result to extract the events per second
-            allResults.put("gpu0", scores);
         } catch (Exception e) {
             log.error("Error running GPU benchmark: {}", e.getMessage());
+            // Run GPU Test
+            scores.put("tokens", -1);
+            scores.put("elapsedTime", -1);
+            scores.put("tokens_per_second", -1);
         }
+        allResults.put("gpu0", scores);
         return allResults;
     }
 
@@ -429,6 +438,61 @@ public class BenchmarkUtil {
             log.error("Error running storage benchmark: {}", e.getMessage());
             // Return default values in case of error
             return getErrorStorageScores();
+        }
+        return scores;
+    }
+
+    /**
+     * Executes a network benchmark by downloading a fixed-size test file and
+     * measuring the effective inbound bandwidth.
+     *
+     * Since no upload endpoint is available, outbound bandwidth cannot be
+     * measured and is reported as -1.
+     *
+     * @param quick if true, downloads a 10 MB file; otherwise downloads a 100 MB file.
+     * @return a map containing:
+     */
+    public Map<String, Object> benchmarkNetwork(boolean quick) {
+        Map<String, Object> scores = new HashMap<>();
+
+        String url = quick
+                ? "https://proof.ovh.net/files/10Mb.dat"
+                : "https://proof.ovh.net/files/100Mb.dat";
+
+        try {
+            HttpClient client = HttpClient.newBuilder()
+                    .followRedirects(HttpClient.Redirect.NORMAL)
+                    .connectTimeout(Duration.ofSeconds(15))
+                    .build();
+
+            HttpRequest request = HttpRequest.newBuilder().uri(URI.create(url)).GET().build();
+
+            long totalBytes = 0;
+            long start = System.nanoTime();
+
+            HttpResponse<InputStream> response = client.send(request, HttpResponse.BodyHandlers.ofInputStream());
+
+            try (InputStream input = response.body()) {
+                byte[] buffer = new byte[64 * 1024];
+                int bytesRead;
+                while ((bytesRead = input.read(buffer)) != -1) {
+                    totalBytes += bytesRead;
+                }
+            }
+
+            long elapsedNs = System.nanoTime() - start;
+            double elapsedSeconds = elapsedNs / 1_000_000_000.0;
+            int downloadKBps = (int) ((totalBytes / 1024.0) / elapsedSeconds);
+            scores.put("download_bandwidth_kbps", downloadKBps);
+            scores.put("upload_bandwidth_kbps", -1);
+            scores.put("total_runtime_ms", (int) (elapsedNs / 1_000_000));
+            log.info("Network benchmark completed. Download={} KB/s, Runtime={} ms", downloadKBps, elapsedNs / 1_000_000);
+
+        } catch (Exception e) {
+            log.error("Error running network benchmark", e);
+            scores.put("download_bandwidth_kbps", -1);
+            scores.put("upload_bandwidth_kbps", -1);
+            scores.put("total_runtime_ms", -1);
         }
         return scores;
     }

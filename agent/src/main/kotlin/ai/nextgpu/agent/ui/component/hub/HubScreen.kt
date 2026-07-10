@@ -5,11 +5,14 @@ import ai.nextgpu.agent.config.GlobalPropertyConfig
 import ai.nextgpu.agent.model.ChatMessage
 import ai.nextgpu.agent.model.ChatSession
 import ai.nextgpu.agent.model.PromptModel
+import ai.nextgpu.agent.service.AudioRecorderService
 import ai.nextgpu.agent.service.ModelDownloadService
 import ai.nextgpu.agent.service.NextGpuAgentService
 import ai.nextgpu.agent.service.NextGpuAiService
 import ai.nextgpu.agent.service.NextGpuVisionService
+import ai.nextgpu.agent.service.NextGpuWebService
 import ai.nextgpu.agent.springContext
+import ai.nextgpu.agent.ui.AppPortal
 import ai.nextgpu.agent.ui.component.hub.sidebar.Sidebar
 import ai.nextgpu.agent.ui.component.popup.settings.model.SettingsViewModel
 import ai.nextgpu.agent.ui.theme.*
@@ -28,6 +31,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.*
+import kotlin.toString
 
 
 object Services {
@@ -35,6 +39,8 @@ object Services {
     val aiService: NextGpuAiService get() = springContext.getBean(NextGpuAiService::class.java)
     val visionService: NextGpuVisionService get() = springContext.getBean(NextGpuVisionService::class.java)
     val streamingService: OllamaStreamingService get() = springContext.getBean(OllamaStreamingService::class.java)
+    val nextGpuWebService: NextGpuWebService get() = springContext.getBean(NextGpuWebService::class.java)
+    val audioRecorderService: AudioRecorderService get() = springContext.getBean(AudioRecorderService::class.java)
 }
 
 @Composable
@@ -46,6 +52,8 @@ fun HubScreen(
     onSettings: (tabId: String) -> Unit,
     isPrivateMode: Boolean,
     onPrivateModeChange: (Boolean) -> Unit,
+    isSidebarCollapsed: Boolean,
+    onToggleSidebar: () -> Unit,
 ) {
     val agentService = remember { Services.agentService }
     val aiService = remember { Services.aiService }
@@ -504,7 +512,7 @@ fun HubScreen(
         uiState = uiState.copy(isGenerating = false, promptText = TextFieldValue(""))
     }
 
-    Surface(color = NextGpuTheme.colors.background) {
+    Surface() {
         Column(modifier = Modifier.fillMaxSize()) {
             Row(modifier = Modifier.weight(1f).fillMaxWidth()) {
                 Sidebar(
@@ -512,8 +520,8 @@ fun HubScreen(
                     viewModel = viewModel,
                     activeSessionId = uiState.currentSession?.id,
                     refreshTrigger = uiState.chatsRefreshTrigger,
-                    isCollapsed = uiState.isSidebarCollapsed,
-                    onToggleSidebar = { uiState = uiState.copy(isSidebarCollapsed = !uiState.isSidebarCollapsed) },
+                    isCollapsed = isSidebarCollapsed,
+                    onToggleSidebar = onToggleSidebar,
                     onSettings = { onSettings("general") },
                     onSessionSelected = { session ->
                         val restoredModel = session.promptModel?.takeIf { it.isNotBlank() } ?: uiState.selectedModel
@@ -528,7 +536,9 @@ fun HubScreen(
                             isGenerating = false             // Force unlock input
                         )
                     },
-                    onNewChat = { uiState = uiState.copy(currentSession = null, messages = emptyList()) })
+                    onNewChat = { uiState = uiState.copy(currentSession = null, messages = emptyList()) },
+                    onProvider = onProvider
+                )
 
                 Box(modifier = Modifier.weight(1f)) {
                     MainHubContent(
@@ -591,6 +601,7 @@ fun HubScreen(
                         onPrivateModeChange = onPrivateModeChange,
                         currentMode = currentMode,
                         onModeChange = { currentMode = it },
+                        sessionId = uiState.currentSession?.id?.toString()
                     )
                     SnackbarHost(hostState = snackbarHostState, modifier = Modifier.align(Alignment.BottomCenter))
                 }
@@ -603,12 +614,13 @@ fun HubScreen(
                     onMessageClick = scrollToMessage
                 )
             }
-            Footer(viewModel = viewModel)
+//            Footer(viewModel = viewModel)
         }
 
         if (uiState.isInitializing) {
-            Box(
-                modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.6f)).pointerInput(Unit) {
+            AppPortal {
+                Box(
+                    modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.6f)).pointerInput(Unit) {
                         awaitPointerEventScope {
                             while (true) {
                                 val event = awaitPointerEvent()
@@ -616,26 +628,28 @@ fun HubScreen(
                             }
                         }
                     }, contentAlignment = Alignment.Center
-            ) {
-                Surface(
-                    shape = RoundedCornerShape(RadiusMedium),
-                    color = NextGpuTheme.colors.surface,
-                    modifier = Modifier.widthIn(min = 400.dp).padding(SpacingLarge)
                 ) {
-                    Column(
-                        modifier = Modifier.padding(SpacingExtraLarge),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(SpacingMedium)
+                    Surface(
+                        shape = RoundedCornerShape(RadiusMedium),
+                        color = NextGpuTheme.colors.surface,
+                        modifier = Modifier.widthIn(min = 400.dp).padding(SpacingLarge)
                     ) {
-                        CircularProgressIndicator(color = NextGpuTheme.colors.primaryVariant, strokeWidth = 3.dp)
-                        Text(
-                            text = uiState.initStatusText,
-                            style = MaterialTheme.typography.body1,
-                            color = NextGpuTheme.colors.textPrimary
-                        )
+                        Column(
+                            modifier = Modifier.padding(SpacingExtraLarge),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(SpacingMedium)
+                        ) {
+                            CircularProgressIndicator(color = NextGpuTheme.colors.primaryVariant, strokeWidth = 3.dp)
+                            Text(
+                                text = uiState.initStatusText,
+                                style = MaterialTheme.typography.body1,
+                                color = NextGpuTheme.colors.textPrimary
+                            )
+                        }
                     }
                 }
             }
+
         }
     }
 }
