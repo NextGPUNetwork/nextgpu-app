@@ -1,5 +1,6 @@
 package ai.nextgpu.agent.service;
 
+import ai.nextgpu.agent.exception.VisionGenerationException;
 import ai.nextgpu.common.dto.AiModelDto;
 import ai.nextgpu.common.model.ComfyUiModelFile;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -79,11 +80,21 @@ public class NextGpuVisionService {
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
         HttpEntity<Map<String, Object>> entity = new HttpEntity<>(payload, headers);
-        JsonNode response = restTemplate.postForObject(url, entity, JsonNode.class);
+
+        JsonNode response;
+        try {
+            response = restTemplate.postForObject(url, entity, JsonNode.class);
+        } catch (Exception e) {
+            log.error("Failed to reach ComfyUI server at {} while queuing prompt", url, e);
+            throw new VisionGenerationException(
+                    "Unable to reach ComfyUI at " + serverAddress + ". Is it running inside WSL2?", e);
+        }
+
         if (response != null && response.has("prompt_id")) {
             return response;
         }
-        throw new RuntimeException("Failed to queue prompt");
+        log.error("ComfyUI did not return a prompt_id for the queued workflow. Raw response: {}", response);
+        throw new VisionGenerationException("ComfyUI rejected the workflow (no prompt_id returned).");
     }
 
     public JsonNode uploadImage(byte[] imageData, String filename) {
@@ -107,11 +118,29 @@ public class NextGpuVisionService {
 
     public JsonNode getHistory(String promptId) {
         String url = (serverAddress.startsWith("http") ? "" : "http://") + serverAddress + "/history/" + promptId;
-        return restTemplate.getForObject(url, JsonNode.class);
+        try {
+            return restTemplate.getForObject(url, JsonNode.class);
+        } catch (Exception e) {
+            log.error("Failed to fetch history for prompt {} from {}", promptId, url, e);
+            throw new VisionGenerationException("Unable to fetch generation history for prompt " + promptId, e);
+        }
     }
 
+    /**
+     * Checks whether a prompt has finished. Network hiccups while polling are treated
+     * as "not complete yet" (and logged) rather than aborting the whole generation -
+     * ComfyUI may simply still be warming up. A hard failure only surfaces once the
+     * overall polling loop in {@link #textToImage} times out or the final history
+     * fetch fails.
+     */
     public boolean isPromptComplete(String promptId) {
-        JsonNode history = getHistory(promptId);
+        JsonNode history;
+        try {
+            history = getHistory(promptId);
+        } catch (VisionGenerationException e) {
+            log.warn("Transient error polling prompt {} status, will retry", promptId);
+            return false;
+        }
         if (history == null || !history.has(promptId)) {
             return false;
         }
@@ -123,7 +152,19 @@ public class NextGpuVisionService {
         String url = String.format("%s%s/view?filename=%s&subfolder=%s&type=%s",
                 (serverAddress.startsWith("http") ? "" : "http://"), serverAddress,
                 filename, subfolder, folderType);
-        return restTemplate.getForObject(url, byte[].class);
+        try {
+            byte[] data = restTemplate.getForObject(url, byte[].class);
+            if (data == null || data.length == 0) {
+                log.error("ComfyUI returned empty image bytes for {}", url);
+                throw new VisionGenerationException("ComfyUI returned an empty image for " + filename);
+            }
+            return data;
+        } catch (VisionGenerationException e) {
+            throw e;
+        } catch (Exception e) {
+            log.error("Failed to download image {} from {}", filename, url, e);
+            throw new VisionGenerationException("Failed to download generated image " + filename, e);
+        }
     }
 
     // ----------------------------------------------------------------
@@ -284,8 +325,9 @@ public class NextGpuVisionService {
      * @param width          output width in pixels
      * @param height         output height in pixels
      * @param model          installed ComfyUI model (provides checkpoint, sampler, scheduler)
-     * @return filename of the generated PNG relative to the comfy output directory,
-     *         or {@code null} if generation failed
+     * @return filename of the generated PNG relative to the comfy output directory.
+     *         Never returns {@code null} - any failure is logged here and thrown as a
+     *         {@link VisionGenerationException} describing exactly what went wrong.
      */
     public String textToImage(
             String positivePrompt,
@@ -300,22 +342,37 @@ public class NextGpuVisionService {
         String promptId = queueResponse.get("prompt_id").asText();
         log.info("Queued textToImage prompt with ID: {}", promptId);
 
-        // Poll until complete (max 30 attempts, 1 s apart)
+        // Poll until complete (max 60 attempts, 1 s apart => up to 60s)
+        int maxAttempts = 60;
         int attempts = 0;
-        while (attempts < 30) {
+        boolean completed = false;
+        while (attempts < maxAttempts) {
             if (isPromptComplete(promptId)) {
-                log.info("Prompt {} complete (via polling)", promptId);
+                completed = true;
+                log.info("Prompt {} complete (via polling, after {}s)", promptId, attempts);
                 break;
             }
             TimeUnit.SECONDS.sleep(1);
             attempts++;
         }
 
+        if (!completed) {
+            log.error("Timed out after {}s waiting for ComfyUI to finish prompt {}", maxAttempts, promptId);
+            throw new VisionGenerationException(
+                    "Timed out waiting for ComfyUI to generate the image (prompt " + promptId + ").");
+        }
+
         JsonNode response = getHistory(promptId);
-        if (response == null || !response.has(promptId)) return null;
+        if (response == null || !response.has(promptId)) {
+            log.error("No history entry returned by ComfyUI for completed prompt {}", promptId);
+            throw new VisionGenerationException("ComfyUI reported no history for prompt " + promptId);
+        }
 
         JsonNode history = response.get(promptId);
-        if (history == null || !history.has("outputs")) return null;
+        if (history == null || !history.has("outputs")) {
+            log.error("History for prompt {} is missing an 'outputs' field: {}", promptId, history);
+            throw new VisionGenerationException("ComfyUI history for prompt " + promptId + " has no outputs.");
+        }
 
         JsonNode outputs = history.get("outputs");
 
@@ -343,7 +400,10 @@ public class NextGpuVisionService {
         }
 
         JsonNode imageInfo = (bestImageInfo != null) ? bestImageInfo : fallbackImageInfo;
-        if (imageInfo == null) return null;
+        if (imageInfo == null) {
+            log.error("Prompt {} completed but produced no image outputs. Outputs: {}", promptId, outputs);
+            throw new VisionGenerationException("ComfyUI finished but produced no image for prompt " + promptId);
+        }
 
         byte[] imageData = getImage(
                 imageInfo.get("filename").asText(),
@@ -351,7 +411,20 @@ public class NextGpuVisionService {
                 imageInfo.get("type").asText()
         );
 
-        BufferedImage bufferedImage = ImageIO.read(new ByteArrayInputStream(imageData));
+        BufferedImage bufferedImage;
+        try {
+            bufferedImage = ImageIO.read(new ByteArrayInputStream(imageData));
+        } catch (IOException e) {
+            log.error("Failed to decode {} bytes of image data for prompt {}", imageData.length, promptId, e);
+            throw new VisionGenerationException("Failed to decode generated image for prompt " + promptId, e);
+        }
+        if (bufferedImage == null) {
+            log.error("ImageIO could not decode image data for prompt {} (unrecognized format, {} bytes)",
+                    promptId, imageData.length);
+            throw new VisionGenerationException(
+                    "Downloaded image for prompt " + promptId + " could not be decoded.");
+        }
+
         Path outputDir  = comfyBaseDir.resolve("output");
         Files.createDirectories(outputDir);
         String filename = promptId + ".png";
@@ -360,10 +433,17 @@ public class NextGpuVisionService {
             ImageIO.write(bufferedImage, "png", outputFile.toFile());
         } catch (IOException e) {
             log.error("Error writing image {} to {}", filename, outputFile, e);
+            throw new VisionGenerationException("Failed to save generated image to disk: " + outputFile, e);
         }
 
-        analyticsService.captureEvent(PosthogEvent.IMAGE_GENERATED.name(), Map.of("file_name", filename));
+        try {
+            analyticsService.captureEvent(PosthogEvent.IMAGE_GENERATED.name(), Map.of("file_name", filename));
+        } catch (Exception e) {
+            // Analytics is best-effort and must never fail an otherwise successful generation.
+            log.warn("Failed to capture analytics event for prompt {}", promptId, e);
+        }
 
+        log.info("textToImage succeeded for prompt {} -> {}", promptId, filename);
         return filename;
     }
 

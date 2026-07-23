@@ -9,10 +9,14 @@ import org.springframework.http.HttpStatus;
 public enum ErrorCode{
     // Custom application error codes (1000+ series)
     // Validation & Constraint Errors
-    VALIDATION_FAILED(1000, HttpStatus.Series.CLIENT_ERROR, "Validation failed"),
-    CONSTRAINT_VIOLATION(1001, HttpStatus.Series.CLIENT_ERROR, "Constraint violation"),
-    INVALID_INPUT(1002, HttpStatus.Series.CLIENT_ERROR, "Invalid input"),
+
+    UNKNOWN_ERROR(500, HttpStatus.Series.SERVER_ERROR, "Unknown Error"),
+    AUTHENTICATION_FAILED(1000, HttpStatus.Series.CLIENT_ERROR, "Authentication failed"),
+    ACCESS_DENIED(1005, HttpStatus.Series.CLIENT_ERROR, "Access denied"),
+    VALIDATION_FAILED(1001, HttpStatus.Series.CLIENT_ERROR, "Validation failed"),
+    CONSTRAINT_VIOLATION(1002, HttpStatus.Series.CLIENT_ERROR, "Constraint violation"),
     INVALID_OTP(1003, HttpStatus.Series.CLIENT_ERROR, "Invalid OTP provided!"),
+    INVALID_INPUT(1004, HttpStatus.Series.CLIENT_ERROR, "Invalid input"),
 
     // Business Rule & Comparison Errors
     COMPARISON_FAILED(1100, HttpStatus.Series.CLIENT_ERROR, "Comparison failed"),
@@ -45,7 +49,9 @@ public enum ErrorCode{
     BENCHMARK_REFERENCE_MISMATCH(1505, HttpStatus.Series.CLIENT_ERROR, "Reference benchmark data mismatch"),
     BENCHMARK_INCOMPLETE(1506, HttpStatus.Series.CLIENT_ERROR, "Benchmark results incomplete"),
     BENCHMARK_ENVIRONMENT_INVALID(1507, HttpStatus.Series.CLIENT_ERROR, "Invalid benchmark environment"),
+    BENCHMARK_RESULTS_NOT_FOUND(1508, HttpStatus.Series.CLIENT_ERROR, "Benchmark results not found"),
     COMPONENT_NOT_FOUND(1600, HttpStatus.Series.CLIENT_ERROR, "Component not found"),
+    RESOURCE_NOT_FOUND(1601, HttpStatus.Series.CLIENT_ERROR, "Resource not found"),
     AI_SERVICE_ERROR(1700, HttpStatus.Series.SERVER_ERROR, "AI service error"),
     AI_SERVICE_DISABLED(1701, HttpStatus.Series.SERVER_ERROR, "AI service disabled"),
     DATA_PERSISTENCE_ERROR(1800, HttpStatus.Series.SERVER_ERROR, "Data persistence error"),

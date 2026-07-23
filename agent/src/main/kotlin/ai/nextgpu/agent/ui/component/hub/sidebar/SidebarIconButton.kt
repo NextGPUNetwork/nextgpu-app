@@ -39,7 +39,7 @@ fun SidebarIconButton(
     Box(
         modifier = Modifier
             .size(size)
-            .clip(RoundedCornerShape(RadiusSmall))
+            .clip(RoundedCornerShape(RadiusRound))
             .hoverable(interactionSource)
             .background(
                 color = if (isHovered && enabled) NextGpuTheme.colors.hoverBackground else Color.Transparent

@@ -39,6 +39,8 @@ import androidx.compose.ui.window.Dialog
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 
 /**
  * Main Sidebar component handling navigation, chat history, and selection modes.
@@ -71,8 +73,8 @@ fun Sidebar(
     val uriHandler = LocalUriHandler.current // NEW: URI Handler
     var isOpeningPortal by remember { mutableStateOf(false) }
 
-    // State for Delete All Confirmation Dialog
-    var showDeleteAllDialog by remember { mutableStateOf(false) }
+    // State for Delete All Confirmation Dialog (null = closed, "starred" or "unstarred")
+    var deleteAllTarget by remember { mutableStateOf<String?>(null) }
     var showRenameDialog by remember { mutableStateOf(false) }
     var sessionToRename by remember { mutableStateOf<ChatSession?>(null) }
     var newSessionName by remember { mutableStateOf("") }
@@ -137,16 +139,16 @@ fun Sidebar(
         ) {
             SidebarItem(
                 icon = "new-chat",
-                label = "New Chat",
+                label = "New chat",
                 isCollapsed = isCollapsed,
                 onClick = { if(!isSelectionMode) { onNewChat() } },
             )
             // TODO: Implement global search
-            SidebarItem(
-                icon = "search", label = "Search Chats", isCollapsed = isCollapsed, onClick = {
-                    if(!isSelectionMode) { /* TODO */ }
-                }
-            )
+//            SidebarItem(
+//                icon = "search", label = "Search Chats", isCollapsed = isCollapsed, onClick = {
+//                    if(!isSelectionMode) { /* TODO */ }
+//                }
+//            )
 
             // Project management section
             SidebarItem(
@@ -165,7 +167,12 @@ fun Sidebar(
                 enter = expandVertically() + fadeIn(),
                 exit = shrinkVertically() + fadeOut()
             ) {
-                Column(modifier = Modifier.padding(start = SpacingMedium)) {
+                Column(modifier = Modifier
+                    .padding(start = SpacingMedium)
+                    .padding(start = SpacingMedium)
+                    .heightIn(max = 200.dp)
+                    .verticalScroll(rememberScrollState())
+                ) {
                     // Action to Create New Project
                     SidebarItem(
                         icon = "plus",
@@ -285,7 +292,9 @@ fun Sidebar(
                             showSelectProjectDialog = true
                         },
                         enabled = hasSelection,
-                        tint = if (hasSelection) NextGpuTheme.colors.textSecondary else NextGpuTheme.colors.textSecondary.copy(alpha = 0.5f)
+                        tint = if (hasSelection) NextGpuTheme.colors.textSecondary else NextGpuTheme.colors.textSecondary.copy(alpha = 0.5f),
+                        size = IconSizeMedium + 5.dp,
+                        iconSize = IconSizeSmall
                     )
 
                     Spacer(modifier = Modifier.width(SpacingSmall))
@@ -307,7 +316,9 @@ fun Sidebar(
                             }
                         },
                         enabled = hasSelection,
-                        tint = if (hasSelection) ErrorText else NextGpuTheme.colors.textSecondary.copy(alpha = 0.5f)
+                        tint = if (hasSelection) ErrorText else NextGpuTheme.colors.textSecondary.copy(alpha = 0.5f),
+                        size = IconSizeMedium + 5.dp,
+                        iconSize = IconSizeSmall
                     )
 
                     Spacer(modifier = Modifier.width(SpacingSmall))
@@ -317,8 +328,8 @@ fun Sidebar(
                         icon = "close",
                         onClick = { exitSelectionMode() },
                         tint = NextGpuTheme.colors.textSecondary,
-                        size = IconSizeMedium,
-                        iconSize = IconSizeMicro
+                        size = IconSizeMedium + 5.dp,
+                        iconSize = IconSizeSmall
                     )
                 }
             }
@@ -341,7 +352,7 @@ fun Sidebar(
                     // FIX: Added unique key for the header
                     item(key = "header_starred") {
                         ChatSectionHeader(
-                            title = "Starred Chats",
+                            title = "Starred chats",
                             isSelectionMode = isSelectionMode,
                             isMenuOpen = isStarredMenuOpen,
                             onMenuOpenChange = { isStarredMenuOpen = it },
@@ -350,7 +361,7 @@ fun Sidebar(
                                 isStarredMenuOpen = false
                             },
                             onDeleteAll = {
-                                showDeleteAllDialog = true
+                                deleteAllTarget = "starred"
                                 isStarredMenuOpen = false
                             }
                         )
@@ -432,7 +443,7 @@ fun Sidebar(
                     // FIX: Added unique key for the header
                     item(key = "header_recent") {
                         ChatSectionHeader(
-                            title = "Recent Chats",
+                            title = "Recent chats",
                             isSelectionMode = isSelectionMode,
                             isMenuOpen = isRecentMenuOpen,
                             onMenuOpenChange = { isRecentMenuOpen = it },
@@ -441,7 +452,7 @@ fun Sidebar(
                                 isRecentMenuOpen = false
                             },
                             onDeleteAll = {
-                                showDeleteAllDialog = true
+                                deleteAllTarget = "unstarred"
                                 isRecentMenuOpen = false
                             }
                         )
@@ -523,7 +534,7 @@ fun Sidebar(
         Spacer(modifier = Modifier.height(SpacingMedium))
 
         // --- Footer ---
-        SidebarItem(icon = "help", label = "Help", isCollapsed = isCollapsed, onClick = { /* TODO: Open Help URL/Modal */ })
+//        SidebarItem(icon = "help", label = "Help", isCollapsed = isCollapsed, onClick = { /* TODO: Open Help URL/Modal */ })
         var isThemeMenuExpanded by remember { mutableStateOf(false) }
 
         AnimatedVisibility(
@@ -558,7 +569,7 @@ fun Sidebar(
             )
         }
 
-        SidebarItem(icon = "setting-alternate", label = "Settings", isCollapsed = isCollapsed, onClick = onSettings)
+        SidebarItem(icon = "settings", label = "Settings", isCollapsed = isCollapsed, onClick = onSettings)
 
         CustomButton(
             text = if (isCollapsed) "" else "Switch to Provider",
@@ -582,12 +593,21 @@ fun Sidebar(
         )
 
         // --- Delete All confirmation dialog ---
-        if (showDeleteAllDialog) {
+
+        if (deleteAllTarget != null) {
+            val isDeletingStarred = deleteAllTarget == "starred"
+            val dialogTitle = if (isDeletingStarred) "Delete all starred chats?" else "Delete all recent chats?"
+            val dialogBody = if (isDeletingStarred) {
+                "You are about to delete all of your starred chat history stored on your computer. This operation cannot be undone. Are you sure?"
+            } else {
+                "You are about to delete all of your recent chat history stored on your computer. Starred chats will be kept safely. This operation cannot be undone. Are you sure?"
+            }
+
             AppPortal {
-                Dialog(onDismissRequest = { showDeleteAllDialog = false }) {
+                Dialog(onDismissRequest = { deleteAllTarget = null }) {
                     Surface(
                         shape = RoundedCornerShape(RadiusMedium),
-                        color = NextGpuTheme.colors.surface, // Matches the setup dialogs
+                        color = NextGpuTheme.colors.surface,
                         contentColor = NextGpuTheme.colors.textPrimary,
                         modifier = Modifier
                             .fillMaxWidth()
@@ -598,20 +618,20 @@ fun Sidebar(
                                 top = SpacingDialog,
                                 start = SpacingDialog,
                                 end = SpacingDialog,
-                                bottom = SpacingLarge // Tighter bottom padding to balance button height
+                                bottom = SpacingLarge
                             )
                         ) {
                             // TITLE
                             Text(
-                                text = "Delete all local chats?",
+                                text = dialogTitle,
                                 style = NextGpuTheme.typography.h6,
-                                color = NextGpuTheme.colors.textPrimary, // Keeps your warning color
+                                color = NextGpuTheme.colors.textPrimary,
                                 modifier = Modifier.padding(bottom = SpacingSmall)
                             )
 
                             // BODY TEXT
                             Text(
-                                text = "You are about to delete all chat history stored on your computer. This is your private data and not shared with anyone.\n\nThis operation cannot be undone. Are you sure?",
+                                text = dialogBody,
                                 style = MaterialTheme.typography.body2,
                                 color = NextGpuTheme.colors.textSecondary
                             )
@@ -627,13 +647,12 @@ fun Sidebar(
                                 // CANCEL BUTTON
                                 CustomButton(
                                     text = "Cancel",
-                                    onClick = { showDeleteAllDialog = false },
+                                    onClick = { deleteAllTarget = null },
                                     backgroundColor = Color.Transparent,
                                     textColor = NextGpuTheme.colors.textSecondary,
                                     hoverBackgroundColor = NextGpuTheme.colors.background.copy(0.35f),
                                     elevation = false,
-
-                                    )
+                                )
 
                                 Spacer(modifier = Modifier.width(SpacingSmall))
 
@@ -641,21 +660,35 @@ fun Sidebar(
                                 CustomButton(
                                     text = "Yes, Delete All",
                                     onClick = {
-                                        showDeleteAllDialog = false
+                                        val target = deleteAllTarget // Capture before clearing
+                                        deleteAllTarget = null // Close dialog instantly
+
                                         coroutineScope.launch(Dispatchers.IO) {
-                                            recentChats.forEach { recentChat -> aiService.deleteChatSession(recentChat) }
+                                            // 1. Filter chats based on what the user selected
+                                            val chatsToDelete = if (target == "starred") {
+                                                recentChats.filter { it.starred == true }
+                                            } else {
+                                                recentChats.filter { it.starred != true }
+                                            }
+
+                                            // 2. Delete the filtered chats
+                                            chatsToDelete.forEach { chat -> aiService.deleteChatSession(chat) }
+
+                                            // 3. Update UI
                                             withContext(Dispatchers.Main) {
-                                                recentChats = emptyList()
-                                                refreshChats()
-                                                onNewChat()
+                                                refreshChats() // Fetch fresh list from DB
+
+                                                // If the active chat was one of the deleted ones, clear the screen
+                                                if (chatsToDelete.any { it.id == activeSessionId }) {
+                                                    onNewChat()
+                                                }
                                             }
                                         }
                                     },
-                                    backgroundColor = ErrorText, // Destructive red background
+                                    backgroundColor = ErrorText,
                                     textColor = Primary01White,
                                     elevation = false,
-
-                                    )
+                                )
                             }
                         }
                     }
@@ -973,11 +1006,19 @@ private fun ChatSectionHeader(
     onSelect: () -> Unit,
     onDeleteAll: () -> Unit
 ) {
+    // 1. Track hover state of the entire header Row
+    val headerInteractionSource = remember { MutableInteractionSource() }
+    val isHeaderHovered by headerInteractionSource.collectIsHoveredAsState()
+
+    // Keep dots visible if hovered OR if the dropdown menu is active
+    val isMenuButtonVisible = isHeaderHovered || isMenuOpen
+
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
             .fillMaxWidth()
             .height(HeightButtonCompact) // 32.dp
+            .hoverable(headerInteractionSource) // 2. Apply hover tracking to the Row
     ) {
         Text(
             text = title,
@@ -988,7 +1029,10 @@ private fun ChatSectionHeader(
         )
 
         if (!isSelectionMode) {
-            Box {
+            // 3. Wrap in a Box and control opacity to eliminate layout shift
+            Box(
+                modifier = Modifier.alpha(if (isMenuButtonVisible) 1f else 0f)
+            ) {
                 SidebarIconButton(
                     icon = "dots-horizontal",
                     onClick = { onMenuOpenChange(true) },
@@ -1009,14 +1053,20 @@ private fun ChatSectionHeader(
                                 icon = "checkbox",
                                 text = "Select",
                                 tint = Color.Unspecified,
-                                onClick = onSelect
+                                onClick = {
+                                    onSelect()
+                                    onMenuOpenChange(false) // Clean UX: Dismiss on select
+                                }
                             )
                             Divider(color = NextGpuTheme.colors.border, thickness = BorderWidth, modifier = Modifier.padding(vertical = SpacingTiny))
                             StyledMenuItem(
                                 icon = "trash",
                                 text = "Delete All",
                                 isDestructive = true,
-                                onClick = onDeleteAll
+                                onClick = {
+                                    onDeleteAll()
+                                    onMenuOpenChange(false) // Clean UX: Dismiss on delete
+                                }
                             )
                         }
                     }

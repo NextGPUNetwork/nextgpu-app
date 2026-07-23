@@ -11,6 +11,7 @@ import ai.nextgpu.agent.ui.theme.*
 import androidx.compose.animation.Crossfade
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -21,6 +22,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -67,10 +69,9 @@ fun SettingsPopup(
         modifier = Modifier
             .fillMaxSize()
             .background(Color.Black.copy(alpha = 0.6f))
-            .clickable(
-                indication = null,
-                interactionSource = remember { MutableInteractionSource() }
-            ) { onDismiss() },
+            .pointerInput(Unit) {
+                detectTapGestures(onTap = { onDismiss() })
+            },
         contentAlignment = Alignment.Center
     ) {
         // The Main Modal Card
@@ -79,8 +80,10 @@ fun SettingsPopup(
                 .fillMaxWidth(0.85f)
                 .fillMaxHeight(0.85f)
                 .widthIn(max = MaxContentWidth)
-                .clickable(enabled = false) {},
-            shape = RoundedCornerShape(RadiusLarge),
+                .pointerInput(Unit) {
+                    detectTapGestures(onTap = {})
+                },
+            shape = RoundedCornerShape(RadiusLarge + 5.dp),
             backgroundColor = NextGpuTheme.colors.background,
             elevation = ElevationExtraLarge
         ) {
@@ -105,7 +108,7 @@ fun SettingsPopup(
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(
-                                painter = painterResource("icons/setting-alternate.svg"),
+                                painter = painterResource("icons/settings.svg"),
                                 contentDescription = null,
                                 tint = NextGpuTheme.colors.textPrimary,
                                 modifier = Modifier.size(IconSizeSmall)
@@ -188,7 +191,7 @@ fun SettingsPopup(
                         Box(
                             modifier = Modifier
                                 .size(HeightButtonCompact)
-                                .clip(RoundedCornerShape(RadiusSmall))
+                                .clip(RoundedCornerShape(RadiusRound))
                                 .clickable(onClick = onDismiss),
                             contentAlignment = Alignment.Center
                         ) {
@@ -266,23 +269,23 @@ fun SettingsTabItem(
             .padding(horizontal = SpacingMedium, vertical = SpacingMicro)
             .fillMaxWidth()
             .height(HeightListItem)
-            .clip(RoundedCornerShape(RadiusSmall))
+            .clip(RoundedCornerShape(RadiusRound))
             .background(backgroundColor)
             .clickable(onClick = onClick)
             .padding(horizontal = SpacingMedium),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        if (isActive) {
-            Box(
-                modifier = Modifier
-                    .width(3.dp)
-                    .height(14.dp)
-                    .background(highlightColor, RoundedCornerShape(SpacingMicro))
-            )
-            Spacer(modifier = Modifier.width(SpacingMedium))
-        } else {
-            Spacer(modifier = Modifier.width(3.dp + SpacingMedium))
-        }
+//        if (isActive) {
+//            Box(
+//                modifier = Modifier
+//                    .width(3.dp)
+//                    .height(14.dp)
+//                    .background(highlightColor, RoundedCornerShape(SpacingMicro))
+//            )
+//            Spacer(modifier = Modifier.width(SpacingMedium))
+//        } else {
+//            Spacer(modifier = Modifier.width(3.dp + SpacingMedium))
+//        }
 
         Icon(
             painter = painterResource(tab.icon),
@@ -347,7 +350,7 @@ fun SettingsSubNav(
             Box(
                 modifier = Modifier
                     .height(HeightButtonCompact)
-                    .clip(RoundedCornerShape(RadiusSmall))
+                    .clip(RoundedCornerShape(RadiusRound))
                     .background(
                         if (isSelected) NextGpuTheme.colors.primaryVariant.copy(0.2f)
                         else Color.Transparent

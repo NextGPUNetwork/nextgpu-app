@@ -2,11 +2,8 @@ package ai.nextgpu.agent.service;
 
 import ai.nextgpu.agent.config.GlobalPropertyConfig;
 import ai.nextgpu.common.model.GlobalProperty;
-import ai.nextgpu.agent.repository.ChatMessageRepository;
 import ai.nextgpu.agent.repository.GlobalPropertyRepository;
-import ai.nextgpu.agent.util.BenchmarkUtil;
 import ai.nextgpu.agent.util.HardwareUtil;
-import ai.nextgpu.agent.util.HttpUtil;
 import ai.nextgpu.common.dto.*;
 import ai.nextgpu.common.model.*;
 import ai.nextgpu.common.report.BenchmarkReport;
@@ -33,7 +30,6 @@ import org.springframework.test.util.ReflectionTestUtils;
 import java.nio.charset.StandardCharsets;
 import java.security.GeneralSecurityException;
 import java.util.Optional;
-import java.util.function.Consumer;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
@@ -49,8 +45,6 @@ class NextGpuAgentServiceTest {
     @Mock private AnalyticsService analyticsService;
     @Mock private ProviderService providerService;
     @Mock private NextGpuWebService nextGpuWebService;
-    private final String testWallet = "test-wallet-address";
-    private GlobalProperty loginWalletProperty;
 
     private NextGpuAgentService service;
 
@@ -66,6 +60,8 @@ class NextGpuAgentServiceTest {
                 .thenReturn(Optional.of(globalPropertyWithValue("pass")));
         lenient().when(globalPropertyRepository.findByName(GlobalPropertyConfig.IS_SETUP_COMPLETED))
                 .thenReturn(Optional.of(globalPropertyWithValue("false")));
+        lenient().when(globalPropertyRepository.findByName(GlobalPropertyConfig.LOCAL_IP))
+                .thenReturn(Optional.of(globalPropertyWithValue("")));
 
         service = spy(new NextGpuAgentService(
                 globalPropertyRepository,
@@ -80,10 +76,14 @@ class NextGpuAgentServiceTest {
         ReflectionTestUtils.setField(service, "SOCKET_URL", "ws://example.test/ws");
         ReflectionTestUtils.setField(service, "nextGpuWebService", nextGpuWebService);
 
+        // Clear invocations from constructor's checkEnvironment() so verify counts start fresh
+        clearInvocations(globalPropertyRepository);
+
         lenient().when(globalPropertyRepository.save(any(GlobalProperty.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
 
-        loginWalletProperty = new GlobalProperty();
+        GlobalProperty loginWalletProperty = new GlobalProperty();
+        String testWallet = "test-wallet-address";
         loginWalletProperty.setValueReference(testWallet);
     }
 
@@ -462,54 +462,23 @@ class NextGpuAgentServiceTest {
     // Hardware Detection Tests
     // ================================
 
-    @Test
-    void saveDetectedHardware_whenNotLoggedIn_throwsRuntimeException() {
-        ReflectionTestUtils.setField(service, "isLoggedIn", false);
-        doReturn(false).when(service).hasValidJwt();
 
-        assertThrows(RuntimeException.class, () -> service.saveDetectedHardware(new Computer()));
-    }
-
-    @Test
-    void saveDetectedHardware_whenWebSocketInitFails_throwsRuntimeException() {
-        // This test is no longer needed since the WebSocket initialization is commented out
-        // The saveDetectedHardware method now just saves the computer without initializing WebSocket
-        // Keeping a simplified version for coverage
-        doReturn(true).when(service).hasValidJwt();
-        GlobalProperty walletProp = globalPropertyWithValue("0x123");
-        when(globalPropertyRepository.findByName(GlobalPropertyConfig.LOGIN_WALLET))
-                .thenReturn(Optional.of(walletProp));
-
-        Computer computer = new Computer();
-        computer.setUuid("comp-uuid");
-        when(computerService.saveComputer(any(), anyString())).thenReturn(computer);
-
-        Computer result = service.saveDetectedHardware(computer);
-
-        assertNotNull(result);
-        assertEquals("comp-uuid", result.getUuid());
-        verify(computerService).saveComputer(any(), eq("0x123"));
-    }
 
     @Test
     void checkAndSaveNvidiaGpuPresence_noGpu_savesFalse() {
-        Computer computer = new Computer();
-        computer.setGpus(Collections.emptySet());
-        when(hardwareUtil.detectComputer()).thenReturn(computer);
-        
+        when(hardwareUtil.detectGpus()).thenReturn(Collections.emptySet());
+
         boolean result = service.checkAndSaveNvidiaGpuPresence();
-        
+
         assertFalse(result);
         verify(globalPropertyRepository).save(argThat(p -> p.getName().equals(GlobalPropertyConfig.HAS_NVIDIA_GPU) && p.getValueReference().equals("false")));
     }
 
     @Test
     void checkAndSaveNvidiaGpuPresence_nonNvidiaGpu_savesFalse() {
-        Computer computer = new Computer();
         Gpu gpu = new Gpu();
         gpu.setManufacturer("AMD");
-        computer.setGpus(Collections.singleton(gpu));
-        when(hardwareUtil.detectComputer()).thenReturn(computer);
+        when(hardwareUtil.detectGpus()).thenReturn(Collections.singleton(gpu));
 
         boolean result = service.checkAndSaveNvidiaGpuPresence();
 
@@ -519,12 +488,10 @@ class NextGpuAgentServiceTest {
 
     @Test
     void checkAndSaveNvidiaGpuPresence_detectsNvidia() {
-        Computer computer = new Computer();
         Gpu gpu = new Gpu();
         gpu.setManufacturer("NVIDIA Corporation");
-        computer.setGpus(Collections.singleton(gpu));
 
-        when(hardwareUtil.detectComputer()).thenReturn(computer);
+        when(hardwareUtil.detectGpus()).thenReturn(Collections.singleton(gpu));
 
         boolean result = service.checkAndSaveNvidiaGpuPresence();
 
@@ -532,21 +499,10 @@ class NextGpuAgentServiceTest {
         verify(globalPropertyRepository).save(argThat(p -> p.getName().equals(GlobalPropertyConfig.HAS_NVIDIA_GPU) && p.getValueReference().equals("true")));
     }
 
-    @Test
-    void checkAndSaveNvidiaGpuPresence_computerNull_savesFalse() {
-        when(hardwareUtil.detectComputer()).thenReturn(null);
-
-        boolean result = service.checkAndSaveNvidiaGpuPresence();
-
-        assertFalse(result);
-        verify(globalPropertyRepository).save(argThat(p -> p.getName().equals(GlobalPropertyConfig.HAS_NVIDIA_GPU) && p.getValueReference().equals("false")));
-    }
 
     @Test
     void checkAndSaveNvidiaGpuPresence_gpusNull_savesFalse() {
-        Computer computer = new Computer();
-        computer.setGpus(null);
-        when(hardwareUtil.detectComputer()).thenReturn(computer);
+        when(hardwareUtil.detectGpus()).thenReturn(null);
 
         boolean result = service.checkAndSaveNvidiaGpuPresence();
 
@@ -563,54 +519,6 @@ class NextGpuAgentServiceTest {
 
         assertEquals(expected, result);
         verify(hardwareUtil).detectComputer();
-    }
-
-    // ================================
-    // Benchmark Tests
-    // ================================
-
-    @Test
-    void saveBenchmarkReport_whenLoggedIn_callsWebService() throws Exception {
-        doReturn(true).when(service).hasValidJwt();
-        doNothing().when(nextGpuWebService).saveBenchmarkReport(any(BenchmarkReportDto.class));
-
-        BenchmarkReport report = new BenchmarkReport();
-        Provider provider = new Provider();
-        provider.setWalletAddress("0x123");
-        report.setProvider(provider);
-        Computer computer = new Computer();
-        computer.setUuid("comp-uuid");
-        report.setComputer(computer);
-
-        service.saveBenchmarkReport(report);
-
-        verify(nextGpuWebService).saveBenchmarkReport(any(BenchmarkReportDto.class));
-    }
-
-    @Test
-    void saveBenchmarkReport_whenNotLoggedIn_throwsRuntimeException() throws Exception {
-        doReturn(false).when(service).hasValidJwt();
-
-        BenchmarkReport report = new BenchmarkReport();
-
-        assertThrows(RuntimeException.class, () -> service.saveBenchmarkReport(report));
-        verify(nextGpuWebService, never()).saveBenchmarkReport(any());
-    }
-
-    @Test
-    void saveBenchmarkReport_whenWebServiceThrows_throwsRuntimeException() throws Exception {
-        doReturn(true).when(service).hasValidJwt();
-        doThrow(new RuntimeException("save failed")).when(nextGpuWebService).saveBenchmarkReport(any());
-
-        BenchmarkReport report = new BenchmarkReport();
-        Provider provider = new Provider();
-        provider.setWalletAddress("0x123");
-        report.setProvider(provider);
-        Computer computer = new Computer();
-        computer.setUuid("comp-uuid");
-        report.setComputer(computer);
-
-        assertThrows(RuntimeException.class, () -> service.saveBenchmarkReport(report));
     }
 
     @Test
@@ -801,28 +709,6 @@ class NextGpuAgentServiceTest {
         assertEquals("", result);
     }
 
-    // ================================
-    // saveDetectedHardware() happy path
-    // ================================
-
-    @Test
-    void saveDetectedHardware_happyPath_savesComputer() {
-        doReturn(true).when(service).hasValidJwt();
-        GlobalProperty walletProp = globalPropertyWithValue("0x123");
-        when(globalPropertyRepository.findByName(GlobalPropertyConfig.LOGIN_WALLET))
-                .thenReturn(Optional.of(walletProp));
-
-        Computer detectedComputer = new Computer();
-        Computer savedComputer = buildSavedComputer("comp-uuid");
-
-        when(computerService.saveComputer(any(Computer.class), eq("0x123"))).thenReturn(savedComputer);
-
-        Computer result = service.saveDetectedHardware(detectedComputer);
-
-        assertNotNull(result);
-        assertEquals("comp-uuid", result.getUuid());
-        verify(computerService).saveComputer(any(), eq("0x123"));
-    }
 
     // ================================
     // fetchAndUpdateComputer() tests
@@ -867,6 +753,17 @@ class NextGpuAgentServiceTest {
     }
 
     @Test
+    void applyAsAProvider_whenLoginWalletMissing_throwsRuntimeExceptionBeforeDetectingHardware() {
+        doReturn(true).when(service).hasValidJwt();
+        when(globalPropertyRepository.findByName(GlobalPropertyConfig.LOGIN_WALLET))
+                .thenReturn(Optional.empty());
+
+        assertThrows(RuntimeException.class, () -> service.applyAsAProvider(status -> {}));
+
+        verifyNoInteractions(hardwareUtil, computerService, nextGpuWebService);
+    }
+
+    @Test
     void applyAsAProvider_happyPath_auditPassesReturnsTrue() throws Exception {
         doReturn(true).when(service).hasValidJwt();
 
@@ -880,7 +777,7 @@ class NextGpuAgentServiceTest {
 
         when(hardwareUtil.detectComputer()).thenReturn(new Computer());
         when(computerService.saveComputer(any(Computer.class), eq("0x123"))).thenReturn(savedComputer);
-        when(computerService.generateComputerBenchmarkReport("0x123", false)).thenReturn(benchmarkReport);
+        when(computerService.generateComputerBenchmarkReport(eq("0x123"), anyBoolean())).thenReturn(benchmarkReport);
         when(nextGpuWebService.auditComputerForAnomalies(any(ComputerDto.class))).thenReturn(true);
         when(nextGpuWebService.getComputer("comp-uuid")).thenReturn(new ComputerDto());
         when(computerService.updateComputer(any(ComputerDto.class))).thenReturn(savedComputer);
@@ -890,9 +787,10 @@ class NextGpuAgentServiceTest {
         boolean result = service.applyAsAProvider(statuses::add);
 
         assertTrue(result);
-        assertTrue(statuses.contains("Detecting hardware"));
-        assertTrue(statuses.contains("Generating benchmark report"));
-        assertTrue(statuses.contains("Auditing computer for anomalies"));
+        assertTrue(statuses.contains("Detecting provider hardware"), "Statuses were: " + statuses);
+        assertTrue(statuses.contains("Generating hardware benchmark report"), "Statuses were: " + statuses);
+        assertTrue(statuses.contains("Auditing computer for anomalies"), "Statuses were: " + statuses);
+
     }
 
     @Test
@@ -909,7 +807,7 @@ class NextGpuAgentServiceTest {
 
         when(hardwareUtil.detectComputer()).thenReturn(new Computer());
         when(computerService.saveComputer(any(Computer.class), eq("0x123"))).thenReturn(savedComputer);
-        when(computerService.generateComputerBenchmarkReport("0x123", false)).thenReturn(benchmarkReport);
+        when(computerService.generateComputerBenchmarkReport(eq("0x123"), anyBoolean())).thenReturn(benchmarkReport);
         when(nextGpuWebService.auditComputerForAnomalies(any(ComputerDto.class))).thenReturn(false);
 
         List<String> statuses = new ArrayList<>();
@@ -917,20 +815,49 @@ class NextGpuAgentServiceTest {
         boolean result = service.applyAsAProvider(statuses::add);
 
         assertFalse(result);
-        assertTrue(statuses.contains("Detecting hardware"));
-        assertTrue(statuses.contains("Generating benchmark report"));
+        assertTrue(statuses.contains("Detecting provider hardware"));
+        assertTrue(statuses.contains("Generating hardware benchmark report"));
         assertTrue(statuses.contains("Auditing computer for anomalies"));
+
         // fetchAndUpdateComputer should not be called when audit fails
         verify(nextGpuWebService, never()).getComputer(any());
     }
 
     @Test
-    void applyAsAProvider_whenDetectHardwareThrows_throwsRuntimeException() {
+    void applyAsAProvider_generatesFullBenchmarkReport() throws Exception {
         doReturn(true).when(service).hasValidJwt();
+
+        GlobalProperty walletProp = globalPropertyWithValue("0x123");
+        when(globalPropertyRepository.findByName(GlobalPropertyConfig.LOGIN_WALLET))
+                .thenReturn(Optional.of(walletProp));
+
+        Computer savedComputer = buildSavedComputer("comp-uuid");
+        BenchmarkReport benchmarkReport = buildBenchmarkReport("0x123", "comp-uuid");
+
+        when(hardwareUtil.detectComputer()).thenReturn(new Computer());
+        when(computerService.saveComputer(any(Computer.class), eq("0x123"))).thenReturn(savedComputer);
+        when(computerService.generateComputerBenchmarkReport("0x123", true)).thenReturn(benchmarkReport);
+        when(nextGpuWebService.auditComputerForAnomalies(any(ComputerDto.class))).thenReturn(false);
+
+        service.applyAsAProvider(status -> {});
+
+        verify(computerService).generateComputerBenchmarkReport("0x123", true);
+        verify(computerService, never()).generateComputerBenchmarkReport("0x123", false);
+    }
+
+    @Test
+    void applyAsAProvider_whenDetectHardwareThrows_throwsRuntimeException() throws Exception{
+        doReturn(true).when(service).hasValidJwt();
+
+        GlobalProperty walletProp = globalPropertyWithValue("0x123");
+        when(globalPropertyRepository.findByName(GlobalPropertyConfig.LOGIN_WALLET))
+                .thenReturn(Optional.of(walletProp));
+
         when(hardwareUtil.detectComputer()).thenThrow(new RuntimeException("detection failed"));
 
         assertThrows(RuntimeException.class, () -> service.applyAsAProvider(status -> {}));
         verify(computerService, never()).saveComputer(any(), any());
+
     }
 
     @Test
@@ -946,7 +873,7 @@ class NextGpuAgentServiceTest {
 
         when(hardwareUtil.detectComputer()).thenReturn(new Computer());
         when(computerService.saveComputer(any(Computer.class), eq("0x123"))).thenReturn(savedComputer);
-        when(computerService.generateComputerBenchmarkReport("0x123", false))
+        when(computerService.generateComputerBenchmarkReport("0x123", true))
                 .thenThrow(new RuntimeException("benchmark failed"));
 
         assertThrows(RuntimeException.class, () -> service.applyAsAProvider(status -> {}));
@@ -967,7 +894,7 @@ class NextGpuAgentServiceTest {
 
         when(hardwareUtil.detectComputer()).thenReturn(new Computer());
         when(computerService.saveComputer(any(Computer.class), eq("0x123"))).thenReturn(savedComputer);
-        when(computerService.generateComputerBenchmarkReport("0x123", false)).thenReturn(benchmarkReport);
+        when(computerService.generateComputerBenchmarkReport("0x123", true)).thenReturn(benchmarkReport);
         doThrow(new RuntimeException("save failed")).when(nextGpuWebService).saveBenchmarkReport(any());
 
         assertThrows(RuntimeException.class, () -> service.applyAsAProvider(status -> {}));
@@ -988,7 +915,7 @@ class NextGpuAgentServiceTest {
 
         when(hardwareUtil.detectComputer()).thenReturn(new Computer());
         when(computerService.saveComputer(any(Computer.class), eq("0x123"))).thenReturn(savedComputer);
-        when(computerService.generateComputerBenchmarkReport("0x123", false)).thenReturn(benchmarkReport);
+        when(computerService.generateComputerBenchmarkReport("0x123", true)).thenReturn(benchmarkReport);
         when(nextGpuWebService.auditComputerForAnomalies(any(ComputerDto.class)))
                 .thenThrow(new RuntimeException("audit failed"));
 
@@ -1010,7 +937,7 @@ class NextGpuAgentServiceTest {
 
         when(hardwareUtil.detectComputer()).thenReturn(new Computer());
         when(computerService.saveComputer(any(Computer.class), eq("0x123"))).thenReturn(savedComputer);
-        when(computerService.generateComputerBenchmarkReport("0x123", false)).thenReturn(benchmarkReport);
+        when(computerService.generateComputerBenchmarkReport("0x123", true)).thenReturn(benchmarkReport);
         when(nextGpuWebService.auditComputerForAnomalies(any(ComputerDto.class))).thenReturn(true);
         when(nextGpuWebService.getComputer("comp-uuid")).thenThrow(new RuntimeException("fetch failed"));
 
@@ -1031,7 +958,7 @@ class NextGpuAgentServiceTest {
 
         when(hardwareUtil.detectComputer()).thenReturn(new Computer());
         when(computerService.saveComputer(any(Computer.class), eq("0x123"))).thenReturn(savedComputer);
-        when(computerService.generateComputerBenchmarkReport("0x123", false)).thenReturn(benchmarkReport);
+        when(computerService.generateComputerBenchmarkReport(eq("0x123"), anyBoolean())).thenReturn(benchmarkReport);
         when(nextGpuWebService.auditComputerForAnomalies(any(ComputerDto.class))).thenReturn(true);
         when(nextGpuWebService.getComputer("comp-uuid")).thenReturn(new ComputerDto());
         when(computerService.updateComputer(any(ComputerDto.class))).thenReturn(savedComputer);
@@ -1041,7 +968,7 @@ class NextGpuAgentServiceTest {
         InOrder inOrder = inOrder(hardwareUtil, computerService, nextGpuWebService);
         inOrder.verify(hardwareUtil).detectComputer();
         inOrder.verify(computerService).saveComputer(any(), eq("0x123"));
-        inOrder.verify(computerService).generateComputerBenchmarkReport("0x123", false);
+        inOrder.verify(computerService).generateComputerBenchmarkReport(eq("0x123"), eq(true));
         inOrder.verify(nextGpuWebService).saveBenchmarkReport(any());
         inOrder.verify(nextGpuWebService).auditComputerForAnomalies(any());
         inOrder.verify(nextGpuWebService).getComputer("comp-uuid");
@@ -1269,11 +1196,6 @@ class NextGpuAgentServiceTest {
     // ================================
     // Helpers
     // ================================
-
-    private void setUpLoggedInWithWallet(String wallet) {
-        ReflectionTestUtils.setField(service, "isLoggedIn", true);
-        ReflectionTestUtils.setField(service, "loginWallet", wallet);
-    }
 
     private static Computer buildSavedComputer(String uuid) {
         Computer c = new Computer();

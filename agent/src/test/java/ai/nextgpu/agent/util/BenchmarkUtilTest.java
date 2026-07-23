@@ -116,14 +116,17 @@ class BenchmarkUtilTest extends BaseTest {
 
     @Test
     void testBenchmarkGpuFailure() {
-        // Mocking AI service failure (returns null)
+        // Mock AI service failure
         when(aiService.generateResponseRaw(anyString(), anyString(), anyList(), anyFloat()))
                 .thenReturn(null);
 
-        Map<String, Object> gpuResults = benchmarkUtil.benchmarkGpu();
+        RuntimeException exception = assertThrows(RuntimeException.class,
+                () -> benchmarkUtil.benchmarkGpu());
 
-        assertNotNull(gpuResults, "GPU results should not be null even on failure");
-        assertTrue(gpuResults.isEmpty(), "GPU results should be empty on failure");
+        assertEquals("Failed to run GPU benchmark", exception.getMessage());
+        assertNotNull(exception.getCause());
+        assertEquals("Invalid response from AI service for GPU benchmark",
+                exception.getCause().getMessage());
     }
 
     @Test

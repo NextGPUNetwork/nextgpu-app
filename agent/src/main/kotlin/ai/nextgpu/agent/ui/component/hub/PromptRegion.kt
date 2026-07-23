@@ -1,5 +1,6 @@
 package ai.nextgpu.agent.ui.component.hub
 
+import ai.nextgpu.agent.ui.component.hub.sidebar.StyledMenuItem
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
@@ -57,7 +58,8 @@ fun PromptRegion(
     onOpenModelSettings: () -> Unit,
     audioRecorderService: ai.nextgpu.agent.service.AudioRecorderService,
     onCheckSttHealth: suspend () -> Boolean,
-    onTranscribeAudio: suspend (java.io.File) -> String?
+    onTranscribeAudio: suspend (java.io.File) -> String?,
+    onError: (String) -> Unit
 ) {
 
     // =========================================================
@@ -123,13 +125,13 @@ fun PromptRegion(
 
     val startRecording = {
         coroutineScope.launch(Dispatchers.IO) {
-            val isHealthy = onCheckSttHealth()
-            if (isHealthy) {
-                // Ensure we update state on Main thread
-                withContext(Dispatchers.Main) {
-                    isRecording = true
-                }
-                try {
+            try {
+                val isHealthy = onCheckSttHealth()
+                if (isHealthy) {
+                    // Ensure we update state on Main thread
+                    withContext(Dispatchers.Main) {
+                        isRecording = true
+                    }
                     audioRecorderService.startRecording { amplitude ->
                         val boosted = (kotlin.math.sqrt(amplitude) * 5.0f).coerceIn(0.2f, 1.0f)
                         val smoothed = (audioAmplitudes.last() * 0.3f) + (boosted * 0.7f)
@@ -140,10 +142,20 @@ fun PromptRegion(
                             audioAmplitudes.add(smoothed)
                         }
                     }
-                } catch (e: Exception) {
+                } else {
                     withContext(Dispatchers.Main) {
-                        isRecording = false
+                        onError("Failed to start microphone.")
                     }
+                }
+            } catch (e: Exception) {
+                var errorMessage = "Failed to start microphone."
+                e.message?.contains("Your local speech-to-text tool is not reachable.")?.let {
+                    errorMessage = e.message ?: "Failed to start microphone."
+                }
+                // --- NEW: Catch hardware/permission errors ---
+                withContext(Dispatchers.Main) {
+                    isRecording = false
+                    onError(errorMessage)
                 }
             }
         }
@@ -193,7 +205,11 @@ fun PromptRegion(
     }
 
     val cornerRadius by animateDpAsState(
-        targetValue = if (currentMode == PromptMode.IMAGE || isMultiLine) RadiusExtraLarge else RadiusRound
+        targetValue = if (isMultiLine || (currentMode == PromptMode.IMAGE && hasInstalledComfyModel)) {
+            RadiusExtraLarge
+        } else {
+            RadiusRound
+        }
     )
 
     // Send is disabled in IMAGE mode when no ComfyUI model is installed
@@ -292,7 +308,7 @@ fun PromptRegion(
             Box(
                 modifier = Modifier
                     .height(HeightButtonCompact)
-                    .clip(RoundedCornerShape(RadiusSmall))
+                    .clip(RoundedCornerShape(RadiusRound))
                     .background(NextGpuTheme.colors.primaryVariant.copy(alpha = 0.12f))
                     .clickable(onClick = onOpenModelSettings)
                     .padding(horizontal = SpacingLarge),
@@ -303,7 +319,7 @@ fun PromptRegion(
                         painter = painterResource("icons/download.svg"),
                         contentDescription = null,
                         tint = NextGpuTheme.colors.primaryVariant,
-                        modifier = Modifier.size(IconSizeMicro)
+                        modifier = Modifier.size(IconSizeSmall)
                     )
                     Spacer(modifier = Modifier.width(SpacingSmall))
                     Text(
@@ -524,11 +540,28 @@ private fun PromptModeSelector(
                     .background(NextGpuTheme.colors.background)
                     .border(BorderWidth, NextGpuTheme.colors.border, RoundedCornerShape(RadiusMedium))
             ) {
-                DropdownMenuItem(onClick = { onModeChange(PromptMode.TEXT); expanded = false }) {
-                    Text("Text chat", color = NextGpuTheme.colors.textPrimary)
-                }
-                DropdownMenuItem(onClick = { onModeChange(PromptMode.IMAGE); expanded = false }) {
-                    Text("Generate image", color = NextGpuTheme.colors.textPrimary)
+                Column(modifier = Modifier.padding(horizontal = SpacingSmall)) {
+
+                    StyledMenuItem(
+                        text = "Text chat",
+                        icon = "text", // Replace with your actual icon name, or remove if you don't want icons here
+                        fontWeight = if (currentMode == PromptMode.TEXT) FontWeight.Bold else FontWeight.Normal,
+                        onClick = {
+                            onModeChange(PromptMode.TEXT)
+                            expanded = false
+                        }
+                    )
+
+                    StyledMenuItem(
+                        text = "Generate image",
+                        icon = "picture", // Replace with your actual icon name, or remove if you don't want icons here
+                        fontWeight = if (currentMode == PromptMode.IMAGE) FontWeight.Bold else FontWeight.Normal,
+                        onClick = {
+                            onModeChange(PromptMode.IMAGE)
+                            expanded = false
+                        }
+                    )
+
                 }
             }
         }
@@ -575,9 +608,17 @@ private fun ImageConfigDropdown(
                     .background(NextGpuTheme.colors.background)
                     .border(BorderWidth, NextGpuTheme.colors.border, RoundedCornerShape(RadiusMedium))
             ) {
-                options.forEach { option ->
-                    DropdownMenuItem(onClick = { onSelect(option); expanded = false }) {
-                        Text(option, color = NextGpuTheme.colors.textPrimary)
+                // Apply the horizontal padding fix to keep hover shapes consistent
+                Column(modifier = Modifier.padding(horizontal = SpacingSmall)) {
+                    options.forEach { option ->
+                        StyledMenuItem(
+                            text = option,
+                            onClick = {
+                                onSelect(option)
+                                expanded = false
+                            }
+                            // We simply don't pass an 'icon' argument here since it defaults to null
+                        )
                     }
                 }
             }

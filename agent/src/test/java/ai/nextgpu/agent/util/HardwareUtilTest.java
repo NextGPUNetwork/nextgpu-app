@@ -1,5 +1,6 @@
 package ai.nextgpu.agent.util;
 
+import org.mockito.MockedStatic;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import ai.nextgpu.agent.service.BaseTest;
@@ -10,10 +11,13 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.core.env.Environment;
 
+import java.lang.reflect.Method;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.Mockito.mockStatic;
 
 @SpringBootTest(classes = BaseTest.TestConfig.class)
 class HardwareUtilTest {
@@ -32,6 +36,13 @@ class HardwareUtilTest {
         assertNotNull(hardwareUtil, "HardwareUtil is null");
         // Check if OpenAI is enabled in application properties, otherwise skip all tests
         isAiServiceEnabled = Boolean.parseBoolean(environment.getProperty("openai.api.enabled", "false"));
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<Cpu> invokeReadCpusInfoFromOS() throws Exception {
+        Method method = HardwareUtil.class.getDeclaredMethod("readCpusInfoFromOS");
+        method.setAccessible(true);
+        return (List<Cpu>) method.invoke(hardwareUtil);
     }
 
     @Test
@@ -173,6 +184,189 @@ class HardwareUtilTest {
         }
         if (operatingSystem.contains("Linux")) {
             assertTrue(operatingSystem.contains("Linux"), "Operating system should be linux");
+        }
+    }
+
+    @Test
+    void parsesWmicSingleCpu() throws Exception {
+        OSUtil.IS_WINDOWS = true;
+        OSUtil.IS_LINUX = false;
+
+        String wmic = String.join("\r\n",
+                "AddressWidth=64",
+                "Architecture=9",
+                "Manufacturer=AuthenticAMD",
+                "MaxClockSpeed=3801",
+                "Name=AMD Ryzen 7 5700G with Radeon Graphics",
+                "NumberOfCores=8",
+                "NumberOfLogicalProcessors=16",
+                "L3CacheSize=16384",
+                "ProcessorId=178BFBFF00A50F00",
+                "");
+
+        try (MockedStatic<OSUtil> os = mockStatic(OSUtil.class)) {
+            os.when(() -> OSUtil.executeCommand("wmic cpu get /format:list")).thenReturn(wmic);
+
+            List<Cpu> cpus = invokeReadCpusInfoFromOS();
+
+            assertEquals(1, cpus.size(), "One block should yield one CPU");
+            Cpu cpu = cpus.getFirst();
+            assertEquals(8, cpu.getCores().intValue());
+            assertEquals(16, cpu.getThreads().intValue());
+            assertEquals(3801, cpu.getMaxClock().intValue());
+            assertEquals(16384, cpu.getL3Cache().intValue());
+            assertEquals(CpuArchitecture.X86_64, cpu.getArchitecture());
+            assertEquals("AuthenticAMD", cpu.getManufacturer());
+            assertEquals("178BFBFF00A50F00", cpu.getProductIdentifier());
+            // model = Name; name = Manufacturer + " " + Name
+            assertEquals("AMD Ryzen 7 5700G with Radeon Graphics", cpu.getModel());
+            assertEquals("AuthenticAMD AMD Ryzen 7 5700G with Radeon Graphics", cpu.getName());
+            // wmic has no min clock; it is sourced from OSHI, which is either unknown (null) or positive.
+            assertTrue(cpu.getMinClock() == null || cpu.getMinClock() > 0);
+        }
+    }
+
+    @Test
+    void parsesWmicMatchesKeysCaseInsensitively() throws Exception {
+        OSUtil.IS_WINDOWS = true;
+        OSUtil.IS_LINUX = false;
+
+        // Same data with mangled key casing; parsing must still resolve every field.
+        String wmic = String.join("\r\n",
+                "architecture=9",
+                "MANUFACTURER=GenuineIntel",
+                "maxclockspeed=2400",
+                "name=Intel(R) Core(TM) i7-9750H",
+                "numberofcores=6",
+                "NumberOfLogicalProcessors=12",
+                "l3cachesize=12288",
+                "");
+
+        try (MockedStatic<OSUtil> os = mockStatic(OSUtil.class)) {
+            os.when(() -> OSUtil.executeCommand("wmic cpu get /format:list")).thenReturn(wmic);
+
+            Cpu cpu = invokeReadCpusInfoFromOS().getFirst();
+            assertEquals(6, cpu.getCores().intValue());
+            assertEquals(12, cpu.getThreads().intValue());
+            assertEquals(2400, cpu.getMaxClock().intValue());
+            assertEquals(12288, cpu.getL3Cache().intValue());
+            assertEquals("GenuineIntel", cpu.getManufacturer());
+            assertEquals(CpuArchitecture.X86_64, cpu.getArchitecture());
+            assertEquals("GenuineIntel Intel(R) Core(TM) i7-9750H", cpu.getName());
+        }
+    }
+
+    @Test
+    void parsesWmicMultipleSockets() throws Exception {
+        OSUtil.IS_WINDOWS = true;
+        OSUtil.IS_LINUX = false;
+
+        String block = String.join("\r\n",
+                "Architecture=9",
+                "Manufacturer=GenuineIntel",
+                "MaxClockSpeed=2100",
+                "Name=Intel(R) Xeon(R) Gold 6130",
+                "NumberOfCores=16",
+                "NumberOfLogicalProcessors=32",
+                "L3CacheSize=22528",
+                "ProcessorId=ABCD");
+        String wmic = block + "\r\n\r\n" + block + "\r\n";
+
+        try (MockedStatic<OSUtil> os = mockStatic(OSUtil.class)) {
+            os.when(() -> OSUtil.executeCommand("wmic cpu get /format:list")).thenReturn(wmic);
+
+            List<Cpu> cpus = invokeReadCpusInfoFromOS();
+            assertEquals(2, cpus.size(), "Two blocks should yield two CPU packages");
+        }
+    }
+
+    // ------------------------------------------------------------------ Linux / lscpu
+
+    @Test
+    void parsesLscpuOutput() throws Exception {
+        OSUtil.IS_WINDOWS = false;
+        OSUtil.IS_LINUX = true;
+
+        String lscpu = """
+                {
+                  "lscpu": [
+                    { "field": "Architecture:", "data": "x86_64" },
+                    { "field": "CPU(s):", "data": "12" },
+                    { "field": "Vendor ID:", "data": "AuthenticAMD",
+                      "children": [
+                        { "field": "Model name:", "data": "AMD Ryzen 7 5700G with Radeon Graphics",
+                          "children": [
+                            { "field": "CPU family:", "data": "25" },
+                            { "field": "Model:", "data": "80" },
+                            { "field": "Thread(s) per core:", "data": "2" },
+                            { "field": "Core(s) per socket:", "data": "6" },
+                            { "field": "Socket(s):", "data": "1" },
+                            { "field": "Stepping:", "data": "0" },
+                            { "field": "CPU max MHz:", "data": "4672.0693" },
+                            { "field": "CPU min MHz:", "data": "400.0000" }
+                          ]
+                        }
+                      ]
+                    },
+                    { "field": "Caches (sum of all):", "data": null,
+                      "children": [
+                        { "field": "L3:", "data": "16 MiB (1 instance)" }
+                      ]
+                    }
+                  ]
+                }
+                """;
+
+        try (MockedStatic<OSUtil> os = mockStatic(OSUtil.class)) {
+            os.when(() -> OSUtil.executeCommand("lscpu --json --output-all")).thenReturn(lscpu);
+
+            List<Cpu> cpus = invokeReadCpusInfoFromOS();
+
+            assertEquals(1, cpus.size(), "One socket should yield one CPU");
+            Cpu cpu = cpus.getFirst();
+            assertEquals(6, cpu.getCores().intValue(), "cores = cores-per-socket * sockets");
+            assertEquals(12, cpu.getThreads().intValue(), "threads = total logical CPUs");
+            assertEquals(4672, cpu.getMaxClock().intValue());
+            assertEquals(400, cpu.getMinClock().intValue(), "min clock should come from lscpu when present");
+            assertEquals(16384, cpu.getL3Cache().intValue(), "16 MiB -> 16384 KB");
+            assertEquals(CpuArchitecture.X86_64, cpu.getArchitecture());
+            assertEquals("AuthenticAMD", cpu.getManufacturer());
+            assertEquals("AMD Ryzen 7 5700G with Radeon Graphics", cpu.getModel());
+            assertEquals("AuthenticAMD AMD Ryzen 7 5700G with Radeon Graphics", cpu.getName());
+            assertEquals("Family 25 Model 80 Stepping 0", cpu.getProductIdentifier());
+        }
+    }
+
+    @Test
+    void parsesLscpuEmitsOneCpuPerSocket() throws Exception {
+        OSUtil.IS_WINDOWS = false;
+        OSUtil.IS_LINUX = true;
+
+        String lscpu = """
+                {
+                  "lscpu": [
+                    { "field": "Architecture:", "data": "x86_64" },
+                    { "field": "CPU(s):", "data": "64" },
+                    { "field": "Vendor ID:", "data": "GenuineIntel",
+                      "children": [
+                        { "field": "Model name:", "data": "Intel(R) Xeon(R) Gold 6130",
+                          "children": [
+                            { "field": "Core(s) per socket:", "data": "16" },
+                            { "field": "Socket(s):", "data": "2" }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+                """;
+
+        try (MockedStatic<OSUtil> os = mockStatic(OSUtil.class)) {
+            os.when(() -> OSUtil.executeCommand("lscpu --json --output-all")).thenReturn(lscpu);
+
+            List<Cpu> cpus = invokeReadCpusInfoFromOS();
+            assertEquals(2, cpus.size(), "Two sockets should yield two CPU packages");
+            assertEquals(32, cpus.getFirst().getCores().intValue(), "16 cores/socket * 2 sockets");
         }
     }
 }

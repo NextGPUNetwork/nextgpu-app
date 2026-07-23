@@ -31,8 +31,43 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.*
-import kotlin.toString
+import org.slf4j.LoggerFactory
+import java.util.UUID
 
+private val log = LoggerFactory.getLogger("HubScreen")
+
+/**
+ * Retries [block] up to [times] total attempts with a short backoff between attempts,
+ * logging every failure (with full stack trace) via [onAttemptFailed] before giving up.
+ * Cancellation is never swallowed/retried - it always propagates immediately so
+ * coroutine cancellation (e.g. the user hitting "Cancel") behaves correctly.
+ */
+private suspend fun <T> retrying(
+    times: Int = 3,
+    initialDelayMs: Long = 1_000,
+    backoffFactor: Double = 2.0,
+    onAttemptFailed: (attempt: Int, maxAttempts: Int, error: Throwable) -> Unit,
+    block: suspend (attempt: Int) -> T,
+): T {
+    var delayMs = initialDelayMs
+    var lastError: Throwable? = null
+
+    for (attempt in 1..times) {
+        try {
+            return block(attempt)
+        } catch (c: CancellationException) {
+            throw c
+        } catch (t: Throwable) {
+            lastError = t
+            onAttemptFailed(attempt, times, t)
+            if (attempt < times) {
+                delay(delayMs)
+                delayMs = (delayMs * backoffFactor).toLong()
+            }
+        }
+    }
+    throw lastError ?: IllegalStateException("Retry loop exited without a result")
+}
 
 object Services {
     val agentService: NextGpuAgentService get() = springContext.getBean(NextGpuAgentService::class.java)
@@ -65,6 +100,39 @@ fun HubScreen(
     val coroutineScope = rememberCoroutineScope()
 
     val snackbarHostState = remember { SnackbarHostState() }
+
+
+
+    // UNIQUE IDENTIFIER FOR PRIVATE/TRANSIENT SESSIONS
+    // We use this as a fallback key when session.id is null
+    var privateSessionTrackingId by remember { mutableStateOf(UUID.randomUUID().toString()) }
+
+    fun getSessionId(session: ChatSession?): String? {
+        if (session == null) return null
+        return session.id?.toString() ?: privateSessionTrackingId
+    }
+
+    // Track the previous state to detect the exact true -> false transition
+    var previousPrivateMode by remember { mutableStateOf(isPrivateMode) }
+
+    LaunchedEffect(isPrivateMode) {
+        if (previousPrivateMode && !isPrivateMode) {
+            // Transitioned from Private -> Public
+            // 1. Clear the current unsaved private chat from the screen
+            // 2. Bump the refresh trigger to fetch the latest public chats
+            uiState = uiState.copy(
+                currentSession = null,
+                messages = emptyList(),
+                chatsRefreshTrigger = uiState.chatsRefreshTrigger + 1
+            )
+            // 3. Reset the tracking ID just to be safe
+            privateSessionTrackingId = UUID.randomUUID().toString()
+        }
+
+        // Update the tracker for the next recomposition
+        previousPrivateMode = isPrivateMode
+    }
+
     // Map to hold background jobs tied to specific session IDs
     val activeGenerationJobs = remember { mutableStateMapOf<String, Job>() }
 
@@ -72,53 +140,38 @@ fun HubScreen(
     val activeGenerations = remember { mutableStateMapOf<String, String>() }
 
     // DERIVED STATE: This instantly appends the streaming text to the UI
-    // without copying/mutating the main list. It is incredibly fast.
-    val displayMessages by remember(uiState.messages, uiState.currentSession?.id) {
+    val displayMessages by remember(uiState.messages, uiState.currentSession, privateSessionTrackingId) {
         derivedStateOf {
-            val currentId = uiState.currentSession?.id?.toString()
+            val currentId = getSessionId(uiState.currentSession)
             val generatingText = currentId?.let { activeGenerations[it] }
 
             if (generatingText != null) {
-                // Append a local, temporary message using -1 as a fake ID
                 uiState.messages + ChatMessage("assistant", generatingText, -1, false)
             } else {
                 uiState.messages
             }
         }
     }
-// In HubScreen, replace isCurrentSessionGenerating with this:
-    val currentSessionId = uiState.currentSession?.id?.toString()
 
-// This accurately reflects "Is the chat I'm currently looking at busy?"
+    val currentSessionId = getSessionId(uiState.currentSession)
     val isCurrentSessionGenerating = currentSessionId != null && activeGenerationJobs.containsKey(currentSessionId)
 
     // True if the model job is running, but hasn't sent any tokens back yet
-    val isCurrentSessionThinking = remember(uiState.currentSession?.id, activeGenerations.size) {
+    val isCurrentSessionThinking = remember(uiState.currentSession, privateSessionTrackingId, activeGenerations.size) {
         derivedStateOf {
-            val currentId = uiState.currentSession?.id?.toString()
+            val currentId = getSessionId(uiState.currentSession)
             val hasJob = currentId?.let { activeGenerationJobs.containsKey(it) } == true
             val hasText = currentId?.let { activeGenerations.containsKey(it) } == true
-            hasJob && !hasText // Job exists but no stream text has arrived yet
+            hasJob && !hasText
         }
     }.value
 
     val chatListState = rememberLazyListState()
     var searchJob by remember { mutableStateOf<Job?>(null) }
 
-    val chatScrollState = key(uiState.currentSession?.id) { rememberScrollState() }
-    val messagePositions = key(uiState.currentSession?.id) { mutableStateMapOf<Int, Float>() }
-
-    // =========================================================
-    // Installed-model lists, derived straight from the service's
-    // snapshot state. No StateFlow, no counter, no re-fetch.
-    //
-    // downloadService.installedModels is a mutableStateOf in the service.
-    // Reading it inside derivedStateOf creates a real Compose dependency,
-    // so the moment refreshSync() rewrites it (after any download/delete/
-    // manual refresh), these recompute and every reader recomposes - the
-    // exact same mechanism that already updates the download-progress UI
-    // inside the Settings popup.
-    // =========================================================
+    val scrollKey = getSessionId(uiState.currentSession) ?: "empty"
+    val chatScrollState = key(scrollKey) { rememberScrollState() }
+    val messagePositions = key(scrollKey) { mutableStateMapOf<Int, Float>() }
 
     val installedOllamaModels = viewModel.installedOllamaModels
     val installedOllamaNames = viewModel.installedOllamaNames
@@ -153,11 +206,9 @@ fun HubScreen(
     var currentMode by remember { mutableStateOf(PromptMode.TEXT) }
     var selectedImageModel by remember { mutableStateOf<String?>(null) }
 
-    // Move auto-select logic here (previously in PromptRegion)
     LaunchedEffect(installedComfyModelNames) {
         when {
             installedComfyModelNames.isEmpty() -> selectedImageModel = null
-
             selectedImageModel.isNullOrEmpty() || selectedImageModel !in installedComfyModelNames -> selectedImageModel =
                 installedComfyModelNames.first()
         }
@@ -203,8 +254,7 @@ fun HubScreen(
         val trimmedPrompt = pos.trim()
         if (trimmedPrompt.isEmpty()) return@let
 
-        // Prevent overlapping generation requests in the same session
-        val currentSessionIdStr = uiState.currentSession?.id?.toString()
+        val currentSessionIdStr = getSessionId(uiState.currentSession)
         if (currentSessionIdStr != null && activeGenerationJobs.containsKey(currentSessionIdStr)) return@let
 
         val modelDto = downloadService.availableModels.find {
@@ -218,7 +268,6 @@ fun HubScreen(
             return@let
         }
 
-        // FIX 1: Grab the TEXT model to handle the session & title generation
         val sessionModelName = uiState.selectedModel ?: uiState.modelOptions.firstOrNull()?.name
         if (sessionModelName.isNullOrEmpty()) {
             coroutineScope.launch {
@@ -227,25 +276,22 @@ fun HubScreen(
             return@let
         }
 
-        // Instantly lock UI, clear text box, and show generating state
         uiState = uiState.copy(
             isGenerating = true, promptText = TextFieldValue("")
         )
 
         val userMessage = ChatMessage("user", trimmedPrompt, uiState.messages.size, false)
 
-        // Launch on Main to ensure atomic UI state updates before shifting to IO
         coroutineScope.launch(Dispatchers.Main) {
             try {
-                // Save session on IO using the TEXT model (prevents title-generation crash)
                 val sessionResult = withContext(Dispatchers.IO) {
                     var session = uiState.currentSession ?: ChatSession()
                     aiService.updateChatSession(session, userMessage, sessionModelName, isPrivateMode)
                 }
-                val sessionIdStr = sessionResult.id.toString()
 
-                // Update UI to show the user's prompt immediately
-                if (uiState.currentSession == null || uiState.currentSession?.id?.toString() == sessionIdStr) {
+                val sessionIdStr = sessionResult.id?.toString() ?: privateSessionTrackingId
+
+                if (uiState.currentSession == null || getSessionId(uiState.currentSession) == sessionIdStr) {
                     uiState = uiState.copy(
                         currentSession = sessionResult,
                         messages = sessionResult.messages.toList(),
@@ -255,12 +301,29 @@ fun HubScreen(
                     uiState = uiState.copy(chatsRefreshTrigger = uiState.chatsRefreshTrigger + 1)
                 }
 
-                // Launch Image Generation Job
                 val genJob = coroutineScope.launch(Dispatchers.IO) {
                     try {
-                        // Pass the ComfyUI model exclusively to the Vision Service
-                        val imageFile = visionService.textToImage(pos, neg, w, h, modelDto)
-                        if (imageFile == null) throw IllegalStateException("Vision service failed to return an image file.")
+                        // Up to 3 total attempts (1 initial + 2 retries), each failure logged with
+                        // full context and stack trace so ComfyUI/WSL2 issues are actually diagnosable.
+                        val imageFile = retrying(
+                            times = 3,
+                            onAttemptFailed = { attempt, maxAttempts, error ->
+                                log.error(
+                                    "textToImage attempt $attempt/$maxAttempts failed for session " +
+                                            "$sessionIdStr (model=$comfyModelName, prompt=\"$trimmedPrompt\")",
+                                    error
+                                )
+                            }
+                        ) { attempt ->
+                            log.info(
+                                "Requesting image generation (attempt $attempt/3) for session " +
+                                        "$sessionIdStr, model=$comfyModelName, size=${w}x${h}"
+                            )
+                            visionService.textToImage(pos, neg, w, h, modelDto)
+                                ?: throw IllegalStateException(
+                                    "Vision service returned no image file (attempt $attempt)."
+                                )
+                        }
 
                         val assistantMessage =
                             ChatMessage("assistant", "<IMG>image<IMG>:${imageFile}", sessionResult.messages.size, false)
@@ -269,7 +332,7 @@ fun HubScreen(
                         )
 
                         withContext(Dispatchers.Main) {
-                            if (uiState.currentSession?.id?.toString() == sessionIdStr) {
+                            if (getSessionId(uiState.currentSession) == sessionIdStr) {
                                 uiState = uiState.copy(
                                     currentSession = finalSession,
                                     messages = finalSession.messages.toList(),
@@ -279,7 +342,17 @@ fun HubScreen(
                                 uiState = uiState.copy(chatsRefreshTrigger = uiState.chatsRefreshTrigger + 1)
                             }
                         }
+                    } catch (c: CancellationException) {
+                        // Job was cancelled (e.g. user hit Cancel) - this is not a failure,
+                        // so don't log it as an error or write an [Error] message to the chat.
+                        log.info("Image generation cancelled for session $sessionIdStr")
+                        throw c
                     } catch (t: Throwable) {
+                        log.error(
+                            "Image generation failed for session $sessionIdStr after retries " +
+                                    "(model=$comfyModelName, prompt=\"$trimmedPrompt\")",
+                            t
+                        )
                         val errorMessage = ChatMessage(
                             "assistant",
                             "[Error] ${t.message ?: "Failed to generate image"}",
@@ -290,7 +363,7 @@ fun HubScreen(
                             aiService.updateChatSession(sessionResult, errorMessage, sessionModelName, isPrivateMode)
 
                         withContext(Dispatchers.Main) {
-                            if (uiState.currentSession?.id?.toString() == sessionIdStr) {
+                            if (getSessionId(uiState.currentSession) == sessionIdStr) {
                                 uiState = uiState.copy(
                                     currentSession = finalSession,
                                     messages = finalSession.messages.toList(),
@@ -301,18 +374,17 @@ fun HubScreen(
                             }
                         }
                     } finally {
-                        withContext(Dispatchers.Main) {
+                        withContext(NonCancellable + Dispatchers.Main) {
                             activeGenerationJobs.remove(sessionIdStr)
                             uiState = uiState.copy(isGenerating = false)
                         }
                     }
                 }
 
-                // Track job synchronously on Main.
                 activeGenerationJobs[sessionIdStr] = genJob
 
             } catch (e: Exception) {
-                // FIX 2: Safety net. If session creation crashes, unlock the UI instantly.
+                log.error("Failed to create/update chat session before image generation", e)
                 uiState = uiState.copy(isGenerating = false)
                 snackbarHostState.showSnackbar("Failed to create chat session: ${e.message}")
             }
@@ -346,14 +418,6 @@ fun HubScreen(
         }
     }
 
-    // =========================================================
-    // WSL setup + initial model load.
-    //
-    // This effect now OWNS initialization: it awaits the first
-    // refreshSync() (dispatcher-safe, fetches on IO) and then clears the
-    // loading overlay. Ongoing updates after this are handled purely by
-    // the derivedStateOf reads above - no counter needed.
-    // =========================================================
     LaunchedEffect("init") {
         withContext(Dispatchers.IO) {
             val distro = agentService.getGlobalProperty(GlobalPropertyConfig.LINUX_DISTRO).getValueReference()
@@ -378,24 +442,11 @@ fun HubScreen(
             }
         }
 
-        // Await the first load, then drop the overlay. refreshSync() writes
-        // installedModels, so the derived lists below are populated by the
-        // time we clear isInitializing.
         downloadService.refreshSync()
         uiState = uiState.copy(isInitializing = false)
-
-        // Version check after WSL is checked and models are loaded
         viewModel.checkForUpdates()
     }
 
-    // =========================================================
-    // Selection reconciliation - the ONLY stateful piece left.
-    //
-    // Keyed on the installed Ollama NAMES (Strings -> reliable structural
-    // equality), so it runs only when the installed set actually changes.
-    // It keeps the current selection if still valid, falls back to the
-    // first model otherwise, or null if none remain.
-    // =========================================================
     LaunchedEffect(installedOllamaNames) {
         val current = uiState.selectedModel
         val fixed = when {
@@ -412,7 +463,7 @@ fun HubScreen(
         val trimmedPrompt = uiState.promptText.text.trim()
         if (trimmedPrompt.isEmpty()) return@let
 
-        val currentSessionIdStr = uiState.currentSession?.id?.toString()
+        val currentSessionIdStr = getSessionId(uiState.currentSession)
         if (currentSessionIdStr != null && activeGenerationJobs.containsKey(currentSessionIdStr)) return@let
 
         val modelName = uiState.selectedModel ?: uiState.modelOptions.firstOrNull()?.name
@@ -425,12 +476,11 @@ fun HubScreen(
         coroutineScope.launch(Dispatchers.IO) {
             var session = uiState.currentSession ?: ChatSession()
             session = aiService.updateChatSession(session, userMessage, modelName, isPrivateMode)
-            val sessionIdStr = session.id.toString()
+
+            val sessionIdStr = session.id?.toString() ?: privateSessionTrackingId
 
             withContext(Dispatchers.Main) {
-                // CRITICAL: We DO NOT put "..." here anymore.
-                // The isCurrentSessionThinking state handles the visual loading placeholder.
-                if (uiState.currentSession == null || uiState.currentSession?.id?.toString() == sessionIdStr) {
+                if (uiState.currentSession == null || getSessionId(uiState.currentSession) == sessionIdStr) {
                     uiState = uiState.copy(
                         currentSession = session,
                         messages = session.messages,
@@ -449,7 +499,6 @@ fun HubScreen(
                     streamingService.streamChat(modelName, historySnapshot).collect { chunk ->
                         fullResponse.append(chunk)
                         withContext(Dispatchers.Main) {
-                            // The very first token replaces the thinking state seamlessly
                             activeGenerations[sessionIdStr] = fullResponse.toString()
                         }
                     }
@@ -461,7 +510,7 @@ fun HubScreen(
 
                     withContext(Dispatchers.Main) {
                         activeGenerations.remove(sessionIdStr)
-                        if (uiState.currentSession?.id?.toString() == sessionIdStr) {
+                        if (getSessionId(uiState.currentSession) == sessionIdStr) {
                             uiState = uiState.copy(
                                 currentSession = finalSession,
                                 messages = finalSession.messages,
@@ -483,7 +532,7 @@ fun HubScreen(
 
                     withContext(Dispatchers.Main) {
                         activeGenerations.remove(sessionIdStr)
-                        if (uiState.currentSession?.id?.toString() == sessionIdStr) {
+                        if (getSessionId(uiState.currentSession) == sessionIdStr) {
                             uiState = uiState.copy(
                                 currentSession = finalSession,
                                 messages = finalSession.messages,
@@ -501,12 +550,12 @@ fun HubScreen(
     }
 
     val cancelGeneration: () -> Unit = {
-        val sessionIdStr = uiState.currentSession?.id?.toString()
+        val sessionIdStr = getSessionId(uiState.currentSession)
 
         if (sessionIdStr != null) {
             activeGenerationJobs[sessionIdStr]?.cancel()
             activeGenerationJobs.remove(sessionIdStr)
-            activeGenerations.remove(sessionIdStr) // <-- Clears the overlay
+            activeGenerations.remove(sessionIdStr)
         }
 
         uiState = uiState.copy(isGenerating = false, promptText = TextFieldValue(""))
@@ -518,7 +567,7 @@ fun HubScreen(
                 Sidebar(
                     aiService = aiService,
                     viewModel = viewModel,
-                    activeSessionId = uiState.currentSession?.id,
+                    activeSessionId = uiState.currentSession?.id, // Fine keeping this since private chats don't appear in sidebar
                     refreshTrigger = uiState.chatsRefreshTrigger,
                     isCollapsed = isSidebarCollapsed,
                     onToggleSidebar = onToggleSidebar,
@@ -526,17 +575,19 @@ fun HubScreen(
                     onSessionSelected = { session ->
                         val restoredModel = session.promptModel?.takeIf { it.isNotBlank() } ?: uiState.selectedModel
 
-                        // FIX: Reset prompt text and generating state when switching sessions
-                        // so we don't carry over stale "Generating..." text or input blocks.
                         uiState = uiState.copy(
                             currentSession = session,
                             messages = session.messages,
                             selectedModel = restoredModel,
-                            promptText = TextFieldValue(""), // Clear input
-                            isGenerating = false             // Force unlock input
+                            promptText = TextFieldValue(""),
+                            isGenerating = false
                         )
                     },
-                    onNewChat = { uiState = uiState.copy(currentSession = null, messages = emptyList()) },
+                    onNewChat = {
+                        uiState = uiState.copy(currentSession = null, messages = emptyList())
+                        // REGENERATE FALLBACK ID to cleanly separate the old transient session from the new one
+                        privateSessionTrackingId = UUID.randomUUID().toString()
+                    },
                     onProvider = onProvider
                 )
 
@@ -573,7 +624,7 @@ fun HubScreen(
                         promptText = uiState.promptText,
                         onPromptChange = ::updatePromptText,
                         onSendPrompt = submitPrompt,
-                        chatMessages = uiState.messages,
+                        chatMessages = displayMessages, // Now correctly bound to the derived streaming list!
                         pinnedMessages = uiState.pinnedMessages,
                         onTogglePin = togglePin,
                         chatScrollState = chatScrollState,
@@ -601,7 +652,7 @@ fun HubScreen(
                         onPrivateModeChange = onPrivateModeChange,
                         currentMode = currentMode,
                         onModeChange = { currentMode = it },
-                        sessionId = uiState.currentSession?.id?.toString()
+                        sessionId = getSessionId(uiState.currentSession)
                     )
                     SnackbarHost(hostState = snackbarHostState, modifier = Modifier.align(Alignment.BottomCenter))
                 }
@@ -614,7 +665,6 @@ fun HubScreen(
                     onMessageClick = scrollToMessage
                 )
             }
-//            Footer(viewModel = viewModel)
         }
 
         if (uiState.isInitializing) {
@@ -639,7 +689,11 @@ fun HubScreen(
                             horizontalAlignment = Alignment.CenterHorizontally,
                             verticalArrangement = Arrangement.spacedBy(SpacingMedium)
                         ) {
-                            CircularProgressIndicator(color = NextGpuTheme.colors.primaryVariant, strokeWidth = 3.dp)
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(30.dp),
+                                color = NextGpuTheme.colors.primaryVariant,
+                                strokeWidth = 3.dp
+                            )
                             Text(
                                 text = uiState.initStatusText,
                                 style = MaterialTheme.typography.body1,
@@ -649,8 +703,6 @@ fun HubScreen(
                     }
                 }
             }
-
         }
     }
 }
-

@@ -69,7 +69,7 @@ import kotlinx.coroutines.delay
 @EntityScan(
     basePackages = ["ai.nextgpu.common.model", "ai.nextgpu.common.report", "ai.nextgpu.agent.model"]
 )
-open class NextGPUAgentApplication
+class NextGPUAgentApplication
 
 private val logger = LoggerFactory.getLogger(NextGPUAgentApplication::class.java)
 
@@ -77,6 +77,11 @@ lateinit var springContext: ConfigurableApplicationContext
 
 
 fun main() {
+    if (!SingleInstance.lock()) {
+        logger.info("NextGPU is already running...")
+        return
+    }
+
     System.setProperty("java.awt.headless", "false")
     System.setProperty("java.net.preferIPv4Stack","true");
 
@@ -337,7 +342,7 @@ fun WindowScope.App(
         // --- HOISTED STATE FOR TOP BAR ---
         val isSetupPhase = currentScreen.value in listOf("welcome", "launch", "nuke")
         val isSidebarVisible = !isSetupPhase
-        val showReadyToServe = currentScreen.value == "provider" // Can tie to a setting later
+        val isProviderView = currentScreen.value == "provider" // Can tie to a setting later
         val showUpdateBadge = settingsViewModel.showUpdatePopup
         val overlayState = remember { OverlayState() }
 
@@ -413,14 +418,17 @@ fun WindowScope.App(
                                 isSidebarVisible = isSidebarVisible,
                                 isSidebarCollapsed = isSidebarCollapsed, // <--- Pass State
                                 onToggleSidebar = { isSidebarCollapsed = !isSidebarCollapsed },
-                                showReadyToServe = showReadyToServe,
+                                showReadyToServe = isProviderView,
                                 showUpdateBadge = settingsViewModel.isUpdateAvailable && !settingsViewModel.isUpdateDownloading,
                                 onUpdateClick = {
                                     settingsViewModel.setUpdatePopupVisibility(true)
                                 },
                                 onProfileClick = { /* TODO: Hook up profile dropdown */ },
                                 windowState = windowState,
-                                onClose = onRequestWindowClose
+                                onClose = onRequestWindowClose,
+                                isPrivateMode = settingsViewModel.isPrivateMode,
+                                onPrivateModeChange = { settingsViewModel.updatePrivateMode(it) },
+                                isProviderView = isProviderView,
                             )
                         }
                     }

@@ -67,9 +67,7 @@ fun UnifiedSetupScreen(
     val scope = rememberCoroutineScope()
     val uriHandler = LocalUriHandler.current
 
-    val eulaUrl = remember {
-        object {}.javaClass.classLoader.getResource("eula.html")?.toExternalForm()
-    }
+    val eulaUrl = "https://nextgpu.ai/eula/"
 
     val environment = remember { springContext.environment }
     val requiredSetupVersion = environment.getProperty<Int>("nextgpu.setup.required-version", 1)
@@ -151,7 +149,7 @@ fun UnifiedSetupScreen(
         installState = optimisticState
 
         try {
-            OSUtil.startPrerequisitesInstallAsync(overwrite, installProfile)
+            OSUtil.startPrerequisitesInstallAsync(overwrite)
         } catch (e: Exception) {
             val failedState = OSUtil.InstallState()
             failedState.error = e.message
@@ -294,10 +292,6 @@ fun UnifiedSetupScreen(
 
                     appendSetupLog("bench_mem")
                     val memory = benchmarkUtil.benchmarkMemory(false)
-                    delay(1000)
-
-                    appendSetupLog("bench_storage")
-                    val storage = benchmarkUtil.benchmarkStorage(false)
                     delay(1000)
 
                     appendSetupLog("setup_done", "Cleaning up temporary installation files...")
@@ -964,118 +958,164 @@ fun UnifiedSetupScreen(
 
         if (showPasswordDialog) {
             var passwordVisible by remember { mutableStateOf(false) }
-            val isPasswordValid = userPasswordInput.length >= 8 && userPasswordInput.any { it.isUpperCase() } && userPasswordInput.any { it.isLowerCase() } && userPasswordInput.any { it.isDigit() } && userPasswordInput.any { "!@#$%^&*".contains(it) }
 
-            Dialog(onDismissRequest = { showPasswordDialog = false }) {
-                Surface(
-                    shape = RoundedCornerShape(RadiusLarge),
-                    color = NextGpuTheme.colors.background,
-                    contentColor = NextGpuTheme.colors.textPrimary,
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = SpacingLarge)
-                ) {
-                    Column(modifier = Modifier.padding(SpacingExtraLarge)) {
-                        Text("Set secure password", style = NextGpuTheme.typography.h5, modifier = Modifier.padding(bottom = SpacingSmall))
-                        Text(
-                            text = buildAnnotatedString {
-                                append("Please create a password for your isolated Linux (WSL) environment. You will need this for administrative tasks inside the containers.\n\n")
-                                withStyle(style = SpanStyle(fontWeight = FontWeight.Bold, color = NextGpuTheme.colors.textPrimary)) {
-                                    append("Note: ")
-                                }
-                                append("Please store this password securely. You will not be able to recover it if it is lost.")
-                            },
-                            color = NextGpuTheme.colors.textSecondary,
-                            style = MaterialTheme.typography.body1
-                        )
-                        Spacer(modifier = Modifier.height(SpacingExtraLarge))
+            // Determine if we are creating a new password or entering an existing one
+            val environmentExists = remember { OSUtil.checkIfNextGpuExists() }
+            val isCreatingNewPassword = !environmentExists || pendingOverwriteChoice
 
-                        OutlinedTextField(
-                            value = userPasswordInput,
-                            onValueChange = { userPasswordInput = it },
-                            shape = RoundedCornerShape(RadiusMedium),
-                            singleLine = true,
-                            visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
-                            trailingIcon = {
-                                val image = if (passwordVisible) Icons.Filled.Visibility else Icons.Filled.VisibilityOff
-                                IconButton(
-                                    onClick = { passwordVisible = !passwordVisible },
-                                    // Add the pointer modifier here
-                                    modifier = Modifier.pointerHoverIcon(PointerIcon.Hand)
-                                ) {
-                                    Icon(
-                                        imageVector = image,
-                                        contentDescription = if (passwordVisible) "Hide password" else "Show password",
-                                        tint = NextGpuTheme.colors.textSecondary
-                                    )
-                                }
-                            },
-                            modifier = Modifier.fillMaxWidth(),
-                            isError = userPasswordInput.isNotEmpty() && !isPasswordValid,
-                            colors = TextFieldDefaults.outlinedTextFieldColors(
-                                focusedBorderColor = NextGpuTheme.colors.textPrimary,
-                                unfocusedBorderColor = NextGpuTheme.colors.border,
-                                cursorColor = NextGpuTheme.colors.textPrimary,
-                                errorBorderColor = Color.Red
-                            )
-                        )
-
-                        if (userPasswordInput.isNotEmpty() && !isPasswordValid) {
+            // Only enforce strict validation if they are creating a NEW password.
+            // If they are entering an existing one, just ensure it's not empty.
+            val isPasswordValid = if (isCreatingNewPassword) {
+                userPasswordInput.length >= 8 &&
+                        userPasswordInput.any { it.isUpperCase() } &&
+                        userPasswordInput.any { it.isLowerCase() } &&
+                        userPasswordInput.any { it.isDigit() } &&
+                        userPasswordInput.any { "!@#$%^&*".contains(it) }
+            } else {
+                userPasswordInput.isNotEmpty()
+            }
+            AppPortal {
+                Dialog(onDismissRequest = { showPasswordDialog = false }) {
+                    Surface(
+                        shape = RoundedCornerShape(RadiusLarge),
+                        color = NextGpuTheme.colors.background,
+                        contentColor = NextGpuTheme.colors.textPrimary,
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = SpacingLarge)
+                    ) {
+                        Column(modifier = Modifier.padding(SpacingExtraLarge)) {
+                            // Dynamic Title
+                            val dialogTitle = if (isCreatingNewPassword) "Set secure password" else "Enter existing password"
                             Text(
-                                "Must be at least 8 characters and include uppercase, lowercase, numbers, and a special character (!@#$%^&*).",
-                                color = Color.Red, style = MaterialTheme.typography.caption, modifier = Modifier.padding(top = SpacingSmall)
+                                text = dialogTitle,
+                                style = NextGpuTheme.typography.h5,
+                                modifier = Modifier.padding(bottom = SpacingSmall)
                             )
-                        } else {
+
+                            // Dynamic Body Text
                             Text(
-                                "Use at least 8 characters.",
-                                color = NextGpuTheme.colors.textSecondary, style = MaterialTheme.typography.caption, modifier = Modifier.padding(top = SpacingSmall)
+                                text = buildAnnotatedString {
+                                    if (isCreatingNewPassword) {
+                                        append("Please create a password for your isolated Linux (WSL) environment. You will need this for administrative tasks inside the containers.\n\n")
+                                        withStyle(style = SpanStyle(fontWeight = FontWeight.Bold, color = NextGpuTheme.colors.textPrimary)) {
+                                            append("Note: ")
+                                        }
+                                        append("Please store this password securely. You will not be able to recover it if it is lost.")
+                                    } else {
+                                        append("We detected an existing Linux (WSL) environment. Please enter your administrative password to continue the setup process.\n\n")
+                                        withStyle(style = SpanStyle(fontWeight = FontWeight.Bold, color = NextGpuTheme.colors.textPrimary)) {
+                                            append("Note: ")
+                                        }
+                                        append("This is the password you created during the initial installation.")
+                                    }
+                                },
+                                color = NextGpuTheme.colors.textSecondary,
+                                style = MaterialTheme.typography.body1
                             )
-                        }
 
-                        Spacer(modifier = Modifier.height(SpacingExtraLarge))
+                            Spacer(modifier = Modifier.height(SpacingExtraLarge))
 
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
-                            CustomButton(
-                                text = "Cancel",
-                                onClick = { showPasswordDialog = false },
-                                backgroundColor = Color.Transparent,
-                                textColor = NextGpuTheme.colors.textPrimary,
-                                elevation = false
+                            OutlinedTextField(
+                                value = userPasswordInput,
+                                onValueChange = { userPasswordInput = it },
+                                shape = RoundedCornerShape(RadiusMedium),
+                                singleLine = true,
+                                visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                                trailingIcon = {
+                                    val image = if (passwordVisible) Icons.Filled.Visibility else Icons.Filled.VisibilityOff
+                                    IconButton(
+                                        onClick = { passwordVisible = !passwordVisible },
+                                        modifier = Modifier.pointerHoverIcon(PointerIcon.Hand)
+                                    ) {
+                                        Icon(
+                                            imageVector = image,
+                                            contentDescription = if (passwordVisible) "Hide password" else "Show password",
+                                            tint = NextGpuTheme.colors.textSecondary
+                                        )
+                                    }
+                                },
+                                modifier = Modifier.fillMaxWidth(),
+                                isError = userPasswordInput.isNotEmpty() && !isPasswordValid,
+                                colors = TextFieldDefaults.outlinedTextFieldColors(
+                                    focusedBorderColor = NextGpuTheme.colors.textPrimary,
+                                    unfocusedBorderColor = NextGpuTheme.colors.border,
+                                    cursorColor = NextGpuTheme.colors.textPrimary,
+                                    errorBorderColor = Color.Red
+                                )
                             )
-                            Spacer(modifier = Modifier.width(SpacingSmall))
-                            CustomButton(
-                                text = if (isInstallCompleted) "Save & Install" else "Set a password",
-                                enabled = isPasswordValid,
-                                onClick = {
-                                    if (isPasswordValid) {
-                                        showPasswordDialog = false
-                                        scope.launch(Dispatchers.IO) {
-                                            try {
-                                                OSUtil.saveInstallCredentials(userPasswordInput)
-                                                val passProp = service.getGlobalProperty(GlobalPropertyConfig.OS_PASSWORD)
-                                                passProp.valueReference = userPasswordInput
-                                                service.saveGlobalProperty(passProp)
-                                                withContext(Dispatchers.Main) {
-                                                    if (isInstallCompleted) {
-                                                        setupHalted = false
-                                                        isSetupRunning = true
-                                                    } else {
-                                                        startInstallation(pendingOverwriteChoice)
+
+                            // Validation warnings
+                            if (userPasswordInput.isNotEmpty() && !isPasswordValid) {
+                                val errorText = if (isCreatingNewPassword) {
+                                    "Must be at least 8 characters and include uppercase, lowercase, numbers, and a special character (!@#$%^&*)."
+                                } else {
+                                    "Password cannot be empty."
+                                }
+                                Text(
+                                    text = errorText,
+                                    color = Color.Red, style = MaterialTheme.typography.caption, modifier = Modifier.padding(top = SpacingSmall)
+                                )
+                            } else if (isCreatingNewPassword) {
+                                Text(
+                                    "Use at least 8 characters.",
+                                    color = NextGpuTheme.colors.textSecondary, style = MaterialTheme.typography.caption, modifier = Modifier.padding(top = SpacingSmall)
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.height(SpacingExtraLarge))
+
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
+                                CustomButton(
+                                    text = "Cancel",
+                                    onClick = { showPasswordDialog = false },
+                                    backgroundColor = Color.Transparent,
+                                    textColor = NextGpuTheme.colors.textPrimary,
+                                    elevation = false
+                                )
+                                Spacer(modifier = Modifier.width(SpacingSmall))
+
+                                // Dynamic Action Button Text
+                                val actionButtonText = when {
+                                    isInstallCompleted -> "Save & Install"
+                                    isCreatingNewPassword -> "Set a password"
+                                    else -> "Verify & Continue"
+                                }
+
+                                CustomButton(
+                                    text = actionButtonText,
+                                    enabled = isPasswordValid,
+                                    onClick = {
+                                        if (isPasswordValid) {
+                                            showPasswordDialog = false
+                                            scope.launch(Dispatchers.IO) {
+                                                try {
+                                                    OSUtil.saveInstallCredentials(userPasswordInput)
+                                                    val passProp = service.getGlobalProperty(GlobalPropertyConfig.OS_PASSWORD)
+                                                    passProp.valueReference = userPasswordInput
+                                                    service.saveGlobalProperty(passProp)
+                                                    withContext(Dispatchers.Main) {
+                                                        if (isInstallCompleted) {
+                                                            setupHalted = false
+                                                            isSetupRunning = true
+                                                        } else {
+                                                            startInstallation(pendingOverwriteChoice)
+                                                        }
                                                     }
-                                                }
-                                            } catch (e: Exception) {
-                                                withContext(Dispatchers.Main) {
-                                                    installState = installState.apply { error = "Failed to save credentials: ${e.message}"; status = "FAILED" }
+                                                } catch (e: Exception) {
+                                                    withContext(Dispatchers.Main) {
+                                                        installState = installState.apply { error = "Failed to save credentials: ${e.message}"; status = "FAILED" }
+                                                    }
                                                 }
                                             }
                                         }
-                                    }
-                                },
-                                backgroundColor = NextGpuTheme.colors.primary,
-                                textColor = Primary03Black,
-                                disabledBackgroundColor = Color.Transparent,
-                                disabledTextColor = NextGpuTheme.colors.textSecondary.copy(alpha = 0.5f),
-                                borderColor = if (isPasswordValid) Color.Transparent else NextGpuTheme.colors.border,
-                                elevation = false
-                            )
+                                    },
+                                    backgroundColor = NextGpuTheme.colors.primary,
+                                    textColor = Primary03Black,
+                                    disabledBackgroundColor = Color.Transparent,
+                                    disabledTextColor = NextGpuTheme.colors.textSecondary.copy(alpha = 0.5f),
+                                    borderColor = if (isPasswordValid) Color.Transparent else NextGpuTheme.colors.border,
+                                    elevation = false
+                                )
+                            }
                         }
                     }
                 }

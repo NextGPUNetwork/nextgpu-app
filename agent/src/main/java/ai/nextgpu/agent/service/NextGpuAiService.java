@@ -3,6 +3,7 @@ package ai.nextgpu.agent.service;
 import ai.nextgpu.common.model.AiModelRegistry;
 import ai.nextgpu.common.model.ComfyUiModelFile;
 import ai.nextgpu.agent.util.OSUtil;
+import ai.nextgpu.agent.util.OllamaUtil;
 
 import java.io.FileOutputStream;
 import java.nio.file.Path;
@@ -74,7 +75,8 @@ public class NextGpuAiService {
 
     private final ObjectMapper objectMapper;
 
-    private final String ollamaUrl;
+    /** Owns Ollama connectivity: URL resolution, connection fallback, and self-heal. */
+    private final OllamaUtil ollamaUtil;
 
     private final GlobalPropertyRepository globalPropertyRepository;
 
@@ -95,7 +97,7 @@ public class NextGpuAiService {
     private HardwareUtil hardwareUtil;
 
     @Autowired
-    public NextGpuAiService(NextGpuWebService nextGpuWebService, @Value("${ollama.api.url:http://localhost:11434}") String defaultOllamaUrl, @Value("${comfy.basedir:./agent/comfy/basedir}") String comfyBaseDir, GlobalPropertyRepository globalPropertyRepository, ChatMessageRepository chatMessageRepository, ChatSessionRepository chatSessionRepository, ProjectRepository projectRepository, AnalyticsService analyticsService) {
+    public NextGpuAiService(NextGpuWebService nextGpuWebService, OllamaUtil ollamaUtil, @Value("${comfy.basedir:./agent/comfy/basedir}") String comfyBaseDir, GlobalPropertyRepository globalPropertyRepository, ChatMessageRepository chatMessageRepository, ChatSessionRepository chatSessionRepository, ProjectRepository projectRepository, AnalyticsService analyticsService) {
         this.nextGpuWebService = nextGpuWebService;
         this.comfyBaseDir = comfyBaseDir;
 
@@ -113,8 +115,7 @@ public class NextGpuAiService {
         this.longRunningRestTemplate = new RestTemplate(longRunningRf);
 
         this.objectMapper = new ObjectMapper();
-        Optional<GlobalProperty> localIpProp = globalPropertyRepository.findByName(GlobalPropertyConfig.LOCAL_IP);
-        this.ollamaUrl = localIpProp.map(globalProperty -> defaultOllamaUrl.replaceAll("localhost|127.0.0.1", globalProperty.getValueReference())).orElse(defaultOllamaUrl);
+        this.ollamaUtil = ollamaUtil;
         this.globalPropertyRepository = globalPropertyRepository;
         this.chatMessageRepository = chatMessageRepository;
         this.chatSessionRepository = chatSessionRepository;
@@ -135,6 +136,13 @@ public class NextGpuAiService {
         }
 
         this.analyticsService = analyticsService;
+    }
+
+    /**
+     * Exposes the primary Ollama base URL (localhost) used to reach the service (mainly for diagnostics/UI).
+     */
+    public String getOllamaUrl() {
+        return ollamaUtil.getBaseUrl();
     }
 
 
@@ -168,7 +176,7 @@ public class NextGpuAiService {
                 boolean pulled = pullOllamaModel(modelName);
                 if (!pulled) {
                     ObjectNode err = objectMapper.createObjectNode();
-                    err.put("error", "Failed to pull model '" + modelName + "'. If this is your first run, ensure Ollama is reachable at " + ollamaUrl + ".");
+                    err.put("error", "Failed to pull model '" + modelName + "'. If this is your first run, ensure Ollama is reachable at " + getOllamaUrl() + ".");
                     return err;
                 }
             }
@@ -188,7 +196,8 @@ public class NextGpuAiService {
 
             HttpEntity<String> request = new HttpEntity<>(objectMapper.writeValueAsString(requestBody), headers);
 
-            ResponseEntity<JsonNode> response = restTemplate.postForEntity(ollamaUrl + "/api/generate", request, JsonNode.class);
+            ResponseEntity<JsonNode> response = ollamaUtil.withFallback(base ->
+                    restTemplate.postForEntity(base + "/api/generate", request, JsonNode.class));
 
             return response.getBody();
         } catch (Exception e) {
@@ -244,7 +253,8 @@ public class NextGpuAiService {
         List<PromptModel> allModels = new ArrayList<>();
         // Get Ollama models
         try {
-            ResponseEntity<JsonNode> response = restTemplate.getForEntity(ollamaUrl + "/api/tags", JsonNode.class);
+            ResponseEntity<JsonNode> response = ollamaUtil.withFallback(base ->
+                    restTemplate.getForEntity(base + "/api/tags", JsonNode.class));
 
             if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null) {
                 JsonNode root = response.getBody();
@@ -401,11 +411,12 @@ public class NextGpuAiService {
             HttpEntity<String> request = new HttpEntity<>(objectMapper.writeValueAsString(requestBody), headers);
 
             if (progressConsumer == null) {
-                ResponseEntity<String> response = longRunningRestTemplate.postForEntity(ollamaUrl + "/api/pull", request, String.class);
+                ResponseEntity<String> response = ollamaUtil.withFallback(base ->
+                        longRunningRestTemplate.postForEntity(base + "/api/pull", request, String.class));
 
                 return response.getStatusCode().is2xxSuccessful();
             } else {
-                return Boolean.TRUE.equals(longRunningRestTemplate.execute(ollamaUrl + "/api/pull", HttpMethod.POST, clientRequest -> {
+                return Boolean.TRUE.equals(ollamaUtil.withFallback(base -> longRunningRestTemplate.execute(base + "/api/pull", HttpMethod.POST, clientRequest -> {
                     clientRequest.getHeaders().addAll(headers);
                     clientRequest.getBody().write(objectMapper.writeValueAsBytes(requestBody));
                 }, clientResponse -> {
@@ -437,7 +448,7 @@ public class NextGpuAiService {
                         log.error("Error pulling model: {} - Status: {}", modelName, clientResponse.getStatusCode());
                         return false;
                     }
-                }));
+                })));
             }
         } catch (Exception e) {
             log.error("Error pulling model: {}", modelName, e);
@@ -507,7 +518,8 @@ public class NextGpuAiService {
             ObjectNode requestBody = objectMapper.createObjectNode();
             requestBody.put("name", modelToDelete);
             HttpEntity<String> request = new HttpEntity<>(objectMapper.writeValueAsString(requestBody), headers);
-            ResponseEntity<String> response = restTemplate.exchange(ollamaUrl + "/api/delete", HttpMethod.DELETE, request, String.class);
+            ResponseEntity<String> response = ollamaUtil.withFallback(base ->
+                    restTemplate.exchange(base + "/api/delete", HttpMethod.DELETE, request, String.class));
 
             if (!response.getStatusCode().is2xxSuccessful()) {
                 log.error("Failed to delete model {}. Status: {}", modelName, response.getStatusCode());
@@ -811,13 +823,14 @@ public class NextGpuAiService {
     }
 
     private String checkAvailabilityProblem() {
+        String url = ollamaUtil.getBaseUrl();
         try {
-            restTemplate.getForEntity(ollamaUrl + "/api/tags", String.class);
+            ollamaUtil.withFallback(base -> restTemplate.getForEntity(base + "/api/tags", String.class));
             return null;
         } catch (ResourceAccessException e) {
-            return "Error: Cannot reach AI service at " + ollamaUrl + ". " + "Reason: " + getFriendlyConnectivityException(e) + ". " + "On Windows, the services run in WSL, ensure the respective port is reachable from Windows.";
+            return "Error: Cannot reach AI service at " + url + ". " + "Reason: " + getFriendlyConnectivityException(e) + ". " + "On Windows, the services run in WSL, ensure the respective port is reachable from Windows.";
         } catch (Exception e) {
-            return "Error: Ollama check failed at " + ollamaUrl + ": " + e.getMessage();
+            return "Error: Ollama check failed at " + url + ": " + e.getMessage();
         }
     }
 

@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import ai.nextgpu.agent.aop.Loggable;
 import ai.nextgpu.agent.service.NextGpuAiService;
+import ai.nextgpu.common.util.StringUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.jetbrains.annotations.NotNull;
@@ -337,13 +338,12 @@ public class OSUtil {
      * @param overwriteExisting A boolean flag indicating whether to overwrite an existing WSL
      * installation if detected. When set to true, the installation
      * forcibly overwrites the current WSL configuration.
-     * @param installProfile    The selected installation path (e.g., "provider" or "ai_hub") to
      * dictate which components the PowerShell script should install.
      * @throws IOException If required resources, such as scripts or credentials, cannot be found,
      * extracted, or executed. This includes issues like missing credential files
      * or errors during script extraction from the application resources.
      */
-    public static void startPrerequisitesInstallAsync(boolean overwriteExisting, String installProfile) throws IOException {
+    public static void startPrerequisitesInstallAsync(boolean overwriteExisting) throws IOException {
         if (!IS_WINDOWS) {
             log.error("This installation method is currently only supported on Windows.");
             return;
@@ -375,14 +375,12 @@ public class OSUtil {
             args += " -OverwriteExistingWsl";
         }
 
-        // Append the installation profile parameter if provided
-        if (installProfile != null && !installProfile.isBlank()) {
-            args += " -InstallProfile " + installProfile;
-        }
+        // [REMOVED: InstallProfile check and argument appending]
 
         String psCommand = "Start-Process powershell.exe -ArgumentList '" + args + "' -Verb RunAs -WindowStyle Hidden";
 
-        log.info("Starting background installation for profile [{}]: {}", installProfile, psCommand);
+        // Updated log statement to remove the profile reference
+        log.info("Starting background installation: {}", psCommand);
 
         // Start the process and immediately return (do not use .waitFor())
         new ProcessBuilder("powershell.exe", "-NoProfile", "-Command", psCommand).start();
@@ -674,6 +672,11 @@ public class OSUtil {
 
     public static Process keepAliveProcess;
 
+    /** Fixed localhost ports the WSL services listen on (kept in sync with install_prerequisites.ps1). */
+    public static final int OLLAMA_PORT = 11434;
+    public static final int COMFY_PORT = 8188;
+    public static final int STT_TOOL_PORT = 8177;
+
     /**
      * Starts the specified WSL distribution and makes sure the services used by the app are running.
      *
@@ -730,55 +733,45 @@ public class OSUtil {
     }
 
     /**
-     * Refreshes Windows portproxy mappings to current WSL IP.
-     * <p>
-     * Ensures localhost:<port> routes correctly to WSL services even after IP changes.
+     * Refreshes Windows portproxy mappings so that {@code localhost:<port>} routes to the current WSL IP
+     * for Ollama, ComfyUI and the STT tool. This is what lets the app reach WSL services via localhost
+     * even though the WSL IP changes across restarts. Called on every WSL start via
+     * {@link #ensureWslStarted(String, String, String)}, so a stale mapping self-corrects on launch.
+     *
+     * @return the detected WSL IP the proxies now point to, or {@code null} when not on Windows
      */
     @Loggable
-    public static void refreshWslPortProxy(String distro, String username, String password)
+    public static String refreshWslPortProxy(String distro, String username, String password)
             throws IOException, InterruptedException {
         if (!IS_WINDOWS) {
-            return;
+            return null;
         }
-        // Get current WSL IP
-        String rawIp = executeCommandInWsl("hostname -I | awk '{print $1}'", distro, username, password);
-        if (rawIp.isBlank()) {
-            throw new RuntimeException("Failed to retrieve WSL IP.");
+        // Single, validated IP-detection path (shared with checkEnvironment via getLocalIpAddress).
+        String wslIp = getLocalIpAddress(distro, username);
+        if (wslIp == null || !StringUtil.isValidIPAddress(wslIp)) {
+            throw new RuntimeException("Failed to retrieve a valid WSL IP for portproxy refresh: '" + wslIp + "'.");
         }
-        String wslIp = rawIp.trim();
         log.info("Detected WSL IP: {}", wslIp);
 
-        // TODO: Externalize these
-        int ollamaPort = 11434;
-        int comfyPort = 8188;
-        int sttToolPort = 8177;
+        int[] ports = {OLLAMA_PORT, COMFY_PORT, STT_TOOL_PORT};
+        for (int port : ports) {
+            // Reset then re-add so a stale connectaddress from a previous WSL IP is replaced.
+            executeCommand("netsh interface portproxy delete v4tov4 listenaddress=127.0.0.1 listenport=" + port);
+            executeCommand("netsh interface portproxy add v4tov4 listenaddress=127.0.0.1 listenport=" + port +
+                    " connectaddress=" + wslIp + " connectport=" + port);
+        }
 
-        // Reset proxies
-        executeCommand("netsh interface portproxy delete v4tov4 listenaddress=127.0.0.1 listenport=" + ollamaPort);
-        executeCommand("netsh interface portproxy delete v4tov4 listenaddress=127.0.0.1 listenport=" + comfyPort);
-        executeCommand("netsh interface portproxy delete v4tov4 listenaddress=127.0.0.1 listenport=" + sttToolPort);
-
-        // Add fresh proxies
-        executeCommand("netsh interface portproxy add v4tov4 listenaddress=127.0.0.1 listenport=" + ollamaPort +
-                " connectaddress=" + wslIp + " connectport=" + ollamaPort);
-        executeCommand("netsh interface portproxy add v4tov4 listenaddress=127.0.0.1 listenport=" + comfyPort +
-                " connectaddress=" + wslIp + " connectport=" + comfyPort);
-        executeCommand("netsh interface portproxy add v4tov4 listenaddress=127.0.0.1 listenport=" + sttToolPort +
-                " connectaddress=" + wslIp + " connectport=" + sttToolPort);
-
-        // Optional: wait a bit for Windows to apply portproxy changes
+        // Give Windows a moment to apply portproxy changes
         Thread.sleep(3000);
 
-        if (isTcpPortBusy("127.0.0.1", ollamaPort)) {
-            log.warn("Port {} not reachable after proxy refresh.", ollamaPort);
+        for (int port : ports) {
+            if (isTcpPortBusy("127.0.0.1", port)) {
+                log.warn("Port {} not reachable after proxy refresh.", port);
+            }
         }
-        if (isTcpPortBusy("127.0.0.1", comfyPort)) {
-            log.warn("Port {} not reachable after proxy refresh.", comfyPort);
-        }
-        if (isTcpPortBusy("127.0.0.1", sttToolPort)) {
-            log.warn("Port {} not reachable after proxy refresh.", sttToolPort);
-        }
-        log.info("Portproxy refreshed -> localhost:{}, localhost:{} and localhost:{} now point to {}", ollamaPort, comfyPort, sttToolPort, wslIp);
+        log.info("Portproxy refreshed -> localhost:{}, localhost:{} and localhost:{} now point to {}",
+                OLLAMA_PORT, COMFY_PORT, STT_TOOL_PORT, wslIp);
+        return wslIp;
     }
 
     /**
@@ -961,8 +954,13 @@ public class OSUtil {
                     log.warn("Failed to retrieve local IP for distro '{}': empty response", distro);
                     return null;
                 }
-                log.info("Retrieved local IP for distro '{}': {}", distro, rawIp.trim());
-                return rawIp.trim();
+                String localIp = rawIp.trim();
+                if (!StringUtil.isValidIPAddress(localIp)) {
+                    log.warn("Failed to retrieve local IP for distro '{}': unexpected response: {}", distro, localIp);
+                    return null;
+                }
+                log.info("Retrieved local IP for distro '{}': {}", distro, localIp);
+                return localIp;
             } catch (IOException | InterruptedException e) {
                 log.warn("Failed to retrieve local IP for distro '{}': {}", distro, e.getMessage());
             }

@@ -123,17 +123,21 @@ public class ComputerService {
      * @throws RuntimeException If an error occurs during hardware detection or saving the computer.
      */
     @Transactional
-    public Computer saveComputer(Computer detectedHardware, String loginWallet) {
+    public Computer saveComputer(Computer detectedHardware, String loginWallet) throws Exception {
         Computer localComputerEntity = loadOrCreateSingleLocalComputer(loginWallet);
 
         CreateComputerDto createComputerDto = buildCreateComputerDto(loginWallet, localComputerEntity, detectedHardware);
+        ComputerDto responseDto;
+        try {
+            responseDto = nextGpuWebService.createComputer(createComputerDto);
+            // Save computer UUID property
+            saveComputerUuidProperty(responseDto.getUuid());
+        } catch (Exception e) {
+            log.error("Failed to create/update computer remotely: {}", e.getMessage());
+            throw e;
+        }
 
         try {
-            ComputerDto response = nextGpuWebService.createComputer(createComputerDto);
-
-            // Save computer UUID property
-            saveComputerUuidProperty(response.getUuid());
-
             // Resolve detected components to existing DB entities (dedupe) BEFORE attaching to the Computer.
             Set<Cpu> resolvedCpus = resolveComponents(detectedHardware.getCpus(), dataService::saveCpu, dataService.getCpuRepository());
             Set<Gpu> resolvedGpus = resolveComponents(detectedHardware.getGpus(), dataService::saveGpu, dataService.getGpuRepository());
@@ -142,7 +146,7 @@ public class ComputerService {
             Set<NetworkDevice> resolvedNetworkDevices = resolveComponents(detectedHardware.getNetworkDevices(), dataService::saveNetworkDevice, dataService.getNetworkDeviceRepository());
 
             Set<GenericComponent> resolvedGenericComponents = resolveGenericComponents(detectedHardware.getOtherComponents());
-            Map<ComputerAttributeType, String> resolvedComputerAttributes = resolveRemoteComputerAttributes(response.getComputerAttributes());
+            Map<ComputerAttributeType, String> resolvedComputerAttributes = resolveRemoteComputerAttributes(responseDto.getComputerAttributes());
 
             localComputerEntity.setCpus(resolvedCpus);
             localComputerEntity.setGpus(resolvedGpus);
@@ -158,11 +162,12 @@ public class ComputerService {
             localComputerEntity.setType(detectedHardware.getType());
 
             // The UUID of the local computer entity must be the same as the one returned by the API
-            localComputerEntity.setUuid(response.getUuid());
+            localComputerEntity.setUuid(responseDto.getUuid());
 
             return dataService.saveComputer(localComputerEntity);
         } catch (Exception e) {
-            throw new RuntimeException("Unrecognized hardware detected.", e);
+            log.error("Failed to save computer locally: {}", e.getMessage());
+            throw e;
         }
     }
 

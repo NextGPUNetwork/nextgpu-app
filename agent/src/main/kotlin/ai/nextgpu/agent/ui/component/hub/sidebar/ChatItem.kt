@@ -55,8 +55,8 @@ fun ChatItem(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .height(HeightButtonCompact)
-            .clip(RoundedCornerShape(RadiusSmall))
+            .height(HeightButtonCompact + 5.dp)
+            .clip(RoundedCornerShape(RadiusRound))
             .background(
                 color = if (shouldHighlight) NextGpuTheme.colors.hoverBackground else Color.Transparent
             )
@@ -103,7 +103,7 @@ fun ChatItem(
                 )
                 Box {
                     SidebarIconButton(
-                        icon = "dots-horizontal",
+                        icon = "dots-vertical",
                         onClick = { isMenuOpen = true },
                         tint = NextGpuTheme.colors.textSecondary,
                         iconSize = IconSizeSmall
@@ -125,7 +125,7 @@ fun ChatItem(
                                     RoundedCornerShape(RadiusMedium)
                                 )
                         ) {
-                            Column(modifier = Modifier.padding(SpacingSmall)) {
+                            Column(modifier = Modifier.padding(horizontal = 8.dp)) {
                                 StyledMenuItem(
                                     icon = if (isInProject) "folder-minus" else "folder-plus",
                                     text = if (isInProject) "Remove from Project" else "Add to project",

@@ -135,6 +135,7 @@ fun OpenclawSettingsView(viewModel: SettingsViewModel) {
                                 showUninstallDialog = false
                                 isUninstalling = true
                                 viewModel.uninstallOpenclaw()
+                                viewModel.toggleOpenclawShortcut(false)
                             },
                             backgroundColor = NextGpuTheme.colors.error,
                             textColor = Primary01White,

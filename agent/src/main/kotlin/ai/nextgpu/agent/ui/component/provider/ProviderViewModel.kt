@@ -4,8 +4,12 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import ai.nextgpu.agent.config.GlobalPropertyConfig
+import ai.nextgpu.agent.exception.ApiException
 import ai.nextgpu.agent.service.NextGpuAgentService
 import ai.nextgpu.agent.service.NextGpuWebService
+import ai.nextgpu.common.exception.ErrorCode
+import ai.nextgpu.common.model.PpcAuditStatus
+import ai.nextgpu.common.model.PpcRegistrationStatus
 import com.fasterxml.jackson.core.JsonParseException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -103,7 +107,7 @@ class ProviderViewModel(
             val computer = if (isTokenValid) agentService.localComputer else null
 
             var localAuditStatus = "UNAUDITED"
-            var localRegistrationStatus = "UNREGISTERED"
+            var localRegistrationStatus = PpcRegistrationStatus.UNREGISTERED.name
 
             // 3. Extract Attributes safely
             val hasMinimumStake = provider?.providerAttributes?.entries?.find {
@@ -125,7 +129,7 @@ class ProviderViewModel(
 
                 localRegistrationStatus = computer.computerAttributes.entries.find {
                     it.key.name.equals("registration_status", ignoreCase = true)
-                }?.value ?: "UNREGISTERED"
+                }?.value ?: PpcRegistrationStatus.UNREGISTERED.name
 
             } else {
                 // Helps confirm if the attributes map itself is entirely null
@@ -161,15 +165,14 @@ class ProviderViewModel(
                     }
 
                     // Gateway 4: Computer exists, Audit Failed
-                    localAuditStatus.equals("AUDIT_FAILED", ignoreCase = true) -> {
+                    localRegistrationStatus.equals(PpcRegistrationStatus.UNREGISTERED.name, ignoreCase = true) -> {
                         log.warn("Routing logic: Audit Failed. Routing to APPLICATION_FAILED.")
                         uiState = ProviderSetupState.APPLICATION_FAILED
                         statusMessage = "" // Let the UI default handle the message, or inject a specific one here
                     }
 
                     // Gateway 5: Computer exists, Audit Successful AND Registered
-                    localAuditStatus.equals("AUDIT_SUCCESSFUL", ignoreCase = true) &&
-                            localRegistrationStatus.equals("REGISTERED", ignoreCase = true) -> {
+                    localRegistrationStatus.equals(PpcRegistrationStatus.REGISTERED.name, ignoreCase = true) -> {
                         log.info("Routing logic: Audit Successful and Registered. Routing to ACTIVE_PROVIDER.")
                         uiState = ProviderSetupState.ACTIVE_PROVIDER
                     }
@@ -238,6 +241,21 @@ class ProviderViewModel(
         }
     }
 
+    /**
+     * Walks the exception's cause chain looking for an ApiException.
+     * Returns null if none is found. Guards against cyclic cause chains.
+     */
+    private fun findApiException(throwable: Throwable, maxDepth: Int = 10): ApiException? {
+        var current: Throwable? = throwable
+        var depth = 0
+        while (current != null && depth < maxDepth) {
+            if (current is ApiException) return current
+            current = current.cause
+            depth++
+        }
+        return null
+    }
+
     fun executeRegistrationPipeline() {
         log.info("--- STARTING executeRegistrationPipeline ---")
         uiState = ProviderSetupState.PROCESSING_APPLICATION
@@ -273,8 +291,23 @@ class ProviderViewModel(
                 }
 
             } catch (e: Exception) {
-                val errorMessage = e.message ?: e.localizedMessage ?: ""
-                log.error("Provider registration pipeline crashed: $errorMessage", e)
+                val apiException = findApiException(e)
+                var errorMessage: String
+                var errorCode: String? = null
+
+                if (apiException != null) {
+                    errorMessage = apiException.errorResponse.message
+                    errorCode = apiException.errorResponse.errorCode.name
+                    log.error("Provider registration pipeline crashed: $errorMessage with error code $errorCode")
+
+                } else {
+                    errorMessage = e.message ?: e.localizedMessage ?: ""
+                    log.error("Provider registration pipeline crashed: $errorMessage", e)
+                }
+
+                if (errorMessage.contains("Exception:")) {
+                    errorMessage = errorMessage.substringAfterLast("Exception:").trim()
+                }
 
                 withContext(Dispatchers.Main) {
                     // Auth Failure Check
@@ -286,22 +319,18 @@ class ProviderViewModel(
                         statusMessage = "Session expired or invalid. Please reconnect."
 
                         // General Network / Server Error Check
-                    } else {
+                    } else if(errorCode != null && errorCode.equals(ErrorCode.AUDIT_FAILED.name, ignoreCase = true)) {
+                        log.warn("Audit completed but hardware failed eligibility. Routing to APPLICATION_FAILED.")
+                        uiState = ProviderSetupState.APPLICATION_FAILED
+                        statusMessage = "Hardware audit completed, but your system does not meet the minimum requirements."
+                    }
+                    else {
                         log.error("Network or server error inferred. Staying on READY_TO_APPLY.")
                         uiState = ProviderSetupState.READY_TO_APPLY
 
-                        // Strip out raw Java exception class names if they bubble up, keeping the UI clean
-                        val cleanErrorMessage = if (errorMessage.contains("Exception:")) {
-                            errorMessage.substringAfterLast("Exception:").trim()
-                        } else {
-                            errorMessage
-                        }
-
                         // Surface a generalized error text to the Apply screen
-                        statusMessage = if (cleanErrorMessage.isNotBlank()) {
-                            "An error occurred while auditing the system, please try again later."
-                        } else {
-                            "A network or server error occurred. Please check your connection and try again."
+                        statusMessage = errorMessage.ifBlank {
+                            "Something went wrong. Please check your connection and try again."
                         }
                     }
                 }

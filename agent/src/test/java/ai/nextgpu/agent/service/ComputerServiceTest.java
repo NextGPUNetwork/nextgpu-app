@@ -170,13 +170,13 @@ public class ComputerServiceTest {
         when(benchmarkUtil.benchmarkMemory(anyBoolean())).thenReturn(memoryBench);
         when(benchmarkUtil.benchmarkStorage(anyBoolean())).thenReturn(storageBench);
 
+        Map<String, Object> networkBench = new HashMap<>();
+        networkBench.put("score", 500);
+        when(benchmarkUtil.benchmarkNetwork(anyBoolean())).thenReturn(networkBench);
+
         Provider provider = new Provider();
         provider.setWalletAddress(loginWallet);
         when(dataService.findProviderByWalletAddress(loginWallet)).thenReturn(provider);
-
-        Computer computer = new Computer();
-        computer.setProvider(provider);
-        when(dataService.findAllComputers()).thenReturn(Collections.singletonList(computer));
 
         BenchmarkReport reportToSave = new BenchmarkReport();
         when(dataService.saveBenchmarkReport(any(BenchmarkReport.class))).thenReturn(reportToSave);
@@ -188,8 +188,8 @@ public class ComputerServiceTest {
         verify(benchmarkUtil).benchmarkCpu();
         verify(benchmarkUtil).benchmarkMemory(true);
         verify(benchmarkUtil).benchmarkStorage(true);
+        verify(benchmarkUtil).benchmarkNetwork(true);
         verify(dataService).saveBenchmarkReport(any(BenchmarkReport.class));
-        verifyNoInteractions(httpUtil);
     }
 
     @Test

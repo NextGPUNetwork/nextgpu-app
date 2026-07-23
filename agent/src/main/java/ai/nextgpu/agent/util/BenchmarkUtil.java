@@ -182,46 +182,152 @@ public class BenchmarkUtil {
         return scores;
     }
 
+    /** Model used for the GPU benchmark's inference workload. */
+    private static final String GPU_BENCHMARK_MODEL = "deepseek-r1:1.5b";
+
+    /** Prompt engineered to require at least 1,000 words of generation to produce a meaningful throughput sample. */
+    private static final String GPU_BENCHMARK_PROMPT = """
+            Write technical explanation of how modern GPUs accelerate large language model inference.
+            Structure the response in the following sections:
+            1. Matrix multiplication and tensor cores
+            2. Attention mechanisms
+            3. Memory bandwidth and VRAM constraints
+            4. Quantization methods such as INT8 and 4-bit
+            5. Parallelism strategies used in inference engines
+            6. Performance bottlenecks in consumer GPUs
+            Each section must contain at least three paragraphs.
+            Write in clear technical prose and avoid bullet points.
+            The total response should be at least 1000 words.
+        """;
+
+    /** Small, cheap prompt used only to force the model to load into VRAM before the timed run. */
+    private static final String GPU_WARMUP_PROMPT = "Reply with the single word OK.";
+
+    private static final int GPU_BENCHMARK_MAX_ATTEMPTS = 4;
+    private static final long GPU_BENCHMARK_INITIAL_BACKOFF_MS = 3_000;
+    private static final long GPU_BENCHMARK_MAX_BACKOFF_MS = 30_000;
+
+    /**
+     * Executes a GPU benchmark by instructing a local or remote AI service to generate a comprehensive
+     * technical document, measuring the generation throughput in tokens per second.
+     * <p>
+     * The benchmark uses a complex prompt (requiring at least 1,000 words on GPU architecture and LLM inference)
+     * targeting the {@link #GPU_BENCHMARK_MODEL} model to simulate a demanding workload. It parses performance
+     * metrics directly from the AI service's metadata payload.
+     * </p>
+     * <p>
+     * This method is resilient to a cold or recovering Ollama backend (e.g. right after the WSL service was
+     * restarted/force-started by {@code OllamaUtil}'s self-recovery, or during first-time model loading into
+     * VRAM):
+     * </p>
+     * <ul>
+     *     <li>a cheap, discarded warm-up call is made first so that model-load time is never counted as part of
+     *     the timed throughput sample, and so it also serves as an early-out connectivity probe;</li>
+     *     <li>on failure (of either the warm-up or the timed call), the attempt is retried with exponential
+     *     backoff up to {@link #GPU_BENCHMARK_MAX_ATTEMPTS} times, since Ollama recovery/model-loading in WSL can
+     *     legitimately take longer than a single immediate retry allows for;</li>
+     *     <li>the underlying failure reason (connectivity error, malformed payload, etc.) is preserved and
+     *     surfaced rather than collapsed into a generic message.</li>
+     * </ul>
+     *
+     * @return a {@link Map} containing the benchmark results under the key {@code "gpu0"}.
+     *         The nested metrics map includes:
+     *         <ul>
+     *           <li>{@code "tokens"} (Integer): The total number of tokens evaluated/generated.</li>
+     *           <li>{@code "elapsedTime"} (Integer): The processing duration in nanoseconds.</li>
+     *           <li>{@code "tokens_per_second"} (Double): The calculated throughput performance metric.</li>
+     *         </ul>
+     * @throws RuntimeException if every attempt fails; the cause chain preserves the last underlying failure.
+     */
     public Map<String, Object> benchmarkGpu() {
         Map<String, Object> allResults = new HashMap<>();
-        Map<String, Object> scores = new HashMap<>();
-        try {
-            String prompt = """
-                Write technical explanation of how modern GPUs accelerate large language model inference.
-                Structure the response in the following sections:
-                1. Matrix multiplication and tensor cores
-                2. Attention mechanisms
-                3. Memory bandwidth and VRAM constraints
-                4. Quantization methods such as INT8 and 4-bit
-                5. Parallelism strategies used in inference engines
-                6. Performance bottlenecks in consumer GPUs
-                Each section must contain at least three paragraphs.
-                Write in clear technical prose and avoid bullet points.
-                The total response should be at least 1000 words.
-            """;
-            JsonNode response = aiService.generateResponseRaw("deepseek-r1:1.5b", prompt, new ArrayList<>(), 0.0f);
-            if (response == null || !response.has("eval_count") || !response.has("eval_duration")) {
-                log.error("Invalid response from AI service for GPU benchmark");
+        Exception lastFailure = null;
+
+        for (int attempt = 1; attempt <= GPU_BENCHMARK_MAX_ATTEMPTS; attempt++) {
+            try {
+                // Discard the result: this just forces the model into VRAM and confirms the service is actually
+                // responsive before we start the clock. Without this, the *first* successful attempt after a
+                // cold start/recovery would report a misleadingly low tokens_per_second dominated by model load
+                // time rather than steady-state generation speed.
+                runGpuInference(GPU_WARMUP_PROMPT);
+
+                Map<String, Object> scores = runGpuInferenceTimed(GPU_BENCHMARK_PROMPT);
+                allResults.put("gpu0", scores);
+                if (attempt > 1) {
+                    log.info("GPU benchmark succeeded on attempt {}/{}.", attempt, GPU_BENCHMARK_MAX_ATTEMPTS);
+                }
                 return allResults;
+            } catch (Exception e) {
+                lastFailure = e;
+                boolean hasNext = attempt < GPU_BENCHMARK_MAX_ATTEMPTS;
+                log.warn("GPU benchmark attempt {}/{} failed: {}.{}", attempt, GPU_BENCHMARK_MAX_ATTEMPTS,
+                        e.getMessage(), hasNext ? " Retrying." : "");
+                if (hasNext) {
+                    sleepQuietly(backoffMs(attempt));
+                }
             }
-            int tokens = response.get("eval_count").asInt();
-            int elapsedTime = response.get("eval_duration").asInt();    // In nanoseconds
-            double tokensPerSecond = (tokens * 1_000_000_000.0) / (elapsedTime + 1);
-
-            // Run GPU Test
-            scores.put("tokens", tokens);
-            scores.put("elapsedTime", elapsedTime);
-            scores.put("tokens_per_second", tokensPerSecond);
-
-        } catch (Exception e) {
-            log.error("Error running GPU benchmark: {}", e.getMessage());
-            // Run GPU Test
-            scores.put("tokens", -1);
-            scores.put("elapsedTime", -1);
-            scores.put("tokens_per_second", -1);
         }
-        allResults.put("gpu0", scores);
-        return allResults;
+
+        log.error("GPU benchmark failed after {} attempts: {}", GPU_BENCHMARK_MAX_ATTEMPTS,
+                lastFailure.getMessage());
+        throw new RuntimeException("Failed to run GPU benchmark after " + GPU_BENCHMARK_MAX_ATTEMPTS + " attempts", lastFailure);
+    }
+
+    /**
+     * Runs the timed GPU inference call and extracts throughput metrics from the response.
+     *
+     * @param prompt the prompt to send
+     * @return a map with {@code tokens}, {@code elapsedTime} (ns), and {@code tokens_per_second}
+     * @throws RuntimeException if the AI service reports an error or returns a payload missing eval metadata
+     */
+    private Map<String, Object> runGpuInferenceTimed(String prompt) {
+        Map<String, Object> scores = new HashMap<>();
+        JsonNode response = runGpuInference(prompt);
+
+        int tokens = response.get("eval_count").asInt();
+        int elapsedTime = response.get("eval_duration").asInt();    // In nanoseconds
+        double tokensPerSecond = (tokens * 1_000_000_000.0) / (elapsedTime + 1);
+
+        scores.put("tokens", tokens);
+        scores.put("elapsedTime", elapsedTime);
+        scores.put("tokens_per_second", tokensPerSecond);
+        return scores;
+    }
+
+    /**
+     * Calls the AI service for the GPU benchmark's model and validates the response, surfacing the real failure
+     * reason instead of a generic message. {@code generateResponseRaw} does not throw on connectivity failures;
+     * it returns an {@code {"error": ...}} payload instead, so that case is detected explicitly here.
+     *
+     * @param prompt the prompt to send
+     * @return the raw JSON response, guaranteed non-null, error-free, and containing eval metadata
+     * @throws RuntimeException if the response is null, carries an "error" field, or is missing eval metadata
+     */
+    private JsonNode runGpuInference(String prompt) {
+        JsonNode response = aiService.generateResponseRaw(GPU_BENCHMARK_MODEL, prompt, new ArrayList<>(), 0.0f);
+        if (response == null) {
+            throw new RuntimeException("No response from AI service for GPU benchmark");
+        }
+        if (response.has("error")) {
+            throw new RuntimeException("AI service error during GPU benchmark: " + response.get("error").asText());
+        }
+        if (!response.has("eval_count") || !response.has("eval_duration")) {
+            throw new RuntimeException("AI service response missing eval metadata for GPU benchmark: " + response);
+        }
+        return response;
+    }
+
+    private long backoffMs(int attempt) {
+        long backoff = GPU_BENCHMARK_INITIAL_BACKOFF_MS * (1L << (attempt - 1));
+        return Math.min(backoff, GPU_BENCHMARK_MAX_BACKOFF_MS);
+    }
+
+    private void sleepQuietly(long millis) {
+        try {
+            Thread.sleep(millis);
+        } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
+        }
     }
 
     private Map<String, Double> parseGlMark2Result(String rawOutput) {
@@ -256,7 +362,7 @@ public class BenchmarkUtil {
             }
         }
         // Average the FPS for categories with multiple entries
-        List<String> categories = Arrays.asList("build", "texture", "shading", "bump", "effect2d", "pulsar", "desktop", 
+        List<String> categories = Arrays.asList("build", "texture", "shading", "bump", "effect2d", "pulsar", "desktop",
                 "buffer", "ideas", "jellyfish", "shadow", "refract", "conditionals", "function", "loop");
         for (String category : categories) {
             List<Double> values = tempResults.get(category);
@@ -385,7 +491,7 @@ public class BenchmarkUtil {
 
             if (usernameProp == null || distroProp == null) {
                 log.error("OS username or Linux distro property not found");
-                return getErrorStorageScores();
+                throw new RuntimeException("Storage benchmark failed");
             }
 
             String username = usernameProp.getValueReference();
@@ -395,7 +501,7 @@ public class BenchmarkUtil {
 
             if (result.isEmpty() || result.contains("Wsl/Service/WSL_E_DISTRO_NOT_FOUND")) {
                 log.error("FIO output is empty or WSL distro not found");
-                return getErrorStorageScores();
+                throw new RuntimeException("Storage benchmark failed");
             }
 
             // Parse the JSON output
@@ -437,7 +543,7 @@ public class BenchmarkUtil {
         } catch (IOException | InterruptedException e) {
             log.error("Error running storage benchmark: {}", e.getMessage());
             // Return default values in case of error
-            return getErrorStorageScores();
+            throw new RuntimeException("Storage benchmark failed");
         }
         return scores;
     }
@@ -490,22 +596,8 @@ public class BenchmarkUtil {
 
         } catch (Exception e) {
             log.error("Error running network benchmark", e);
-            scores.put("download_bandwidth_kbps", -1);
-            scores.put("upload_bandwidth_kbps", -1);
-            scores.put("total_runtime_ms", -1);
+            throw new RuntimeException("Network benchmark failed");
         }
-        return scores;
-    }
-
-    private Map<String, Object> getErrorStorageScores() {
-        Map<String, Object> scores = new HashMap<>();
-        scores.put("read_bandwidth_mb", -1);
-        scores.put("read_iops", -1);
-        scores.put("read_latency_ns", -1);
-        scores.put("write_bandwidth_mb", -1);
-        scores.put("write_iops", -1);
-        scores.put("write_latency_ns", -1);
-        scores.put("total_runtime_ms", -1);
         return scores;
     }
 }

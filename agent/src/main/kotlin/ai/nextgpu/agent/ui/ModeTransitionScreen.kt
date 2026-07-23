@@ -5,6 +5,7 @@ import ai.nextgpu.agent.ui.theme.NextGpuTheme
 import ai.nextgpu.agent.ui.theme.SpacingMedium
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.material.Colors
 import androidx.compose.material.Icon
 import androidx.compose.material.MaterialTheme
 import androidx.compose.material.Text
@@ -41,7 +42,7 @@ fun ModeTransitionScreen() {
             Text(
                 text = "Switching user mode...",
                 style = MaterialTheme.typography.body1,
-                color = NextGpuTheme.colors.textPrimary,
+                color = Color.Black,
             )
         }
     }

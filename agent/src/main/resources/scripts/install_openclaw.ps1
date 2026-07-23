@@ -235,34 +235,24 @@ if (-not (Is-StepDone "openclaw_install")) {
 
     RunWSL @'
 set -e
+# --- STRIP WINDOWS PATHS ---
+export PATH=$(echo "$PATH" | tr ':' '\n' | grep -v '/mnt/c' | paste -sd ':' -)
+
 export NVM_DIR="$HOME/.nvm"
 [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
 
-# Download the installation script locally
-curl -o install_openclaw.sh -fsSL https://openclaw.ai/install.sh
 
-# A balanced 20-second timeout acts as a fallback safety net if an ANSI redraw hides a string
-expect -c "
-set timeout 20
-spawn bash install_openclaw.sh
+echo "Installing OpenClaw globally via NPM (Bypassing interactive installer)..."
+npm install -g openclaw
 
-expect {
-    \"*gateway token now?*\"     { send \"\r\"; exp_continue }
-    \"*Create Session store*\"    { send \"\r\"; exp_continue }
-    \"*unavailable skills*\"      { send \"n\r\"; exp_continue }
-    \"*shell completion*\"        { send \"n\r\"; exp_continue }
-    \"*gateway service now?*\"    { send \"\r\"; exp_continue }
-    \"*service runtime*\"         { send \"\r\"; exp_continue }
-    timeout                      { send \"\r\"; exp_continue }
-    eof
-}
-"
+openclaw --version
 
 openclaw --version
 '@ "openclaw_install" "Downloading and installing OpenClaw"
 
     Update-Step "openclaw_install" "Installing OpenClaw CLI" "COMPLETED" 70
 }
+
 # -------------------------
 # 4. Model Scan & Configuration
 # -------------------------
@@ -368,9 +358,12 @@ if (-not (Is-StepDone "openclaw_config")) {
     $JsonBytes = [System.Text.Encoding]::UTF8.GetBytes($OpenclawJson)
     $Base64Json = [Convert]::ToBase64String($JsonBytes)
 
-    # Notice how much cleaner this WSL block is now without expect!
     RunWSL @"
 set -e
+
+export PATH=`$(echo "`$PATH" | tr ':' '\n' | grep -v '/mnt/c' | paste -sd ':' -)
+
+mkdir -p /home/$WslUser/.openclaw
 echo '$Base64Json' | base64 -d > /home/$WslUser/.openclaw/openclaw.json
 chmod 600 /home/$WslUser/.openclaw/openclaw.json
 
@@ -381,10 +374,22 @@ export XDG_RUNTIME_DIR=/run/user/`$(id -u)
 export DBUS_SESSION_BUS_ADDRESS=unix:path=`${XDG_RUNTIME_DIR}/bus
 
 echo "Running doctor --fix..."
-yes "" | CI=true openclaw doctor --fix >/dev/null 2>&1 || true
+yes | CI=true openclaw doctor --fix >/dev/null 2>&1 || true
+
+echo "Creating system shortcuts for systemd..."
+sudo ln -sf `$(which node) /usr/local/bin/node
+sudo ln -sf `$(which openclaw) /usr/local/bin/openclaw
+systemctl --user daemon-reload
+
+echo "Clearing any orphaned migration locks..."
+find /home/$WslUser/.openclaw -name "*.lock" -delete || true
 
 echo "Installing Gateway..."
 openclaw gateway install
+
+echo "Stopping gateway to clear any orphaned locks..."
+systemctl --user stop openclaw-gateway || true
+find ~/.openclaw ~/.config/openclaw ~/.local/share/openclaw ~/.local/state/openclaw -name "*.lock" 2>/dev/null -delete || true
 
 echo "Restarting OpenClaw Gateway to apply our custom token..."
 openclaw gateway restart || openclaw gateway start

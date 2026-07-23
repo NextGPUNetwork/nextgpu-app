@@ -141,7 +141,7 @@ fun ChatSection(
                 .verticalScroll(scrollState), // FLAWLESS SCROLLING APPLIED HERE
             verticalArrangement = Arrangement.spacedBy(SpacingMedium)
         ) {
-            messages.forEachIndexed { idx, message ->
+            messages.toList().forEachIndexed { idx, message ->
                 ChatBubble(
                     // CHANGED: Now mapping by the 'idx' instead of 'message.id'
                     modifier = Modifier.onGloballyPositioned { coordinates ->

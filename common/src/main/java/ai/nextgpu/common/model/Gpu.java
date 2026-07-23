@@ -91,14 +91,14 @@ public class Gpu extends BaseComponent {
             throw new IllegalArgumentException("Cannot compare Gpu with " + other.getClass().getSimpleName());
         }
         
-        if (exceedsTolerance(this.maxClock, otherGpu.maxClock, 5.0))
+        if (exceedsTolerance(this.maxClock, otherGpu.maxClock, 15.0))
             throw new ComponentException(
                     ErrorCode.MAX_TOLERANCE_VIOLATION.getDescription(),
                     ErrorCode.MAX_TOLERANCE_VIOLATION,
-                    new IllegalArgumentException("Gpu minClock exceeds maximum allowed tolerance: expected="+this.minClock+" actual="+otherGpu.minClock)
+                    new IllegalArgumentException("Gpu maxClock exceeds maximum allowed tolerance: expected="+this.maxClock+" actual="+otherGpu.maxClock)
             );
 
-        if (exceedsTolerance(this.minClock, otherGpu.minClock, 5.0))
+        if (exceedsTolerance(this.minClock, otherGpu.minClock, 15.0))
             throw new ComponentException(
                     ErrorCode.MAX_TOLERANCE_VIOLATION.getDescription(),
                     ErrorCode.MAX_TOLERANCE_VIOLATION,

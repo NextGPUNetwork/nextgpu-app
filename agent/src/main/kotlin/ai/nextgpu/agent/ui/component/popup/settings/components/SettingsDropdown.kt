@@ -19,6 +19,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import ai.nextgpu.agent.ui.theme.*
+import androidx.compose.ui.text.style.TextOverflow
 
 @Composable
 fun SettingsDropdown(
@@ -38,26 +39,24 @@ fun SettingsDropdown(
             // --- 1. Trigger Button (Styled like TopNavigation) ---
             Row(
                 modifier = Modifier
-                    .widthIn(min = 120.dp) // Ensures a consistent clickable area
-                    .clip(RoundedCornerShape(RadiusMedium)) // THEME: 12.dp
-                    .border(
-                        width = BorderWidth, // THEME: 0.5.dp
-                        color = if (expanded || isHovered) NextGpuTheme.colors.hoverBackground else NextGpuTheme.colors.border,
-                        shape = RoundedCornerShape(RadiusMedium)
-                    )
-                    .background(if (isHovered) NextGpuTheme.colors.hoverBackground else Color.Transparent)
+                    .widthIn(min = 100.dp, max = 120.dp) // Kept your sizing logic, but you can change this to .width(140.dp) if you want exact width matching
+                    .clip(RoundedCornerShape(RadiusRound)) // Matched UI: Pill shape
+                    .background(if (isHovered) NextGpuTheme.colors.hoverBackground else NextGpuTheme.colors.backgroundVariant) // Matched UI: Solid background, no border
                     .clickable(
                         interactionSource = interactionSource,
                         indication = ripple(bounded = true)
-                    ) { expanded = !expanded }
-                    .padding(horizontal = SpacingMedium, vertical = SpacingSmall), // THEME: 10.dp, 8.dp
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
+                    ) { expanded = !expanded } // Kept functionality
+                    .padding(horizontal = SpacingMedium, vertical = SpacingSmall),
+                verticalAlignment = Alignment.CenterVertically
+                // Removed horizontalArrangement = Arrangement.SpaceBetween because weight(1f) on text handles the spacing natively now
             ) {
                 Text(
                     text = selectedValue,
                     color = NextGpuTheme.colors.textPrimary,
-                    style = MaterialTheme.typography.body2.copy(fontWeight = FontWeight.Medium)
+                    style = MaterialTheme.typography.body2.copy(fontWeight = FontWeight.Medium),
+                    maxLines = 1, // Matched UI: Prevent multi-line stretching
+                    overflow = TextOverflow.Ellipsis, // Matched UI: Clean truncation
+                    modifier = Modifier.weight(1f) // Matched UI: Takes up remaining space and pushes icon to the right
                 )
 
                 Spacer(modifier = Modifier.width(SpacingSmall))
@@ -66,7 +65,7 @@ fun SettingsDropdown(
                     painter = painterResource("icons/arrow-down.svg"),
                     contentDescription = null,
                     modifier = Modifier
-                        .size(14.dp) // Consistent with TopNavigation
+                        .size(14.dp)
                         .rotate(rotation),
                     tint = NextGpuTheme.colors.textSecondary
                 )
@@ -82,7 +81,7 @@ fun SettingsDropdown(
                         .background(NextGpuTheme.colors.background)
                         .border(BorderWidth, NextGpuTheme.colors.border, RoundedCornerShape(RadiusMedium))
                 ) {
-                    Column(modifier = Modifier.padding(SpacingSmall)) { // THEME: 8.dp
+                    Column(modifier = Modifier.padding(horizontal = SpacingSmall)) { // THEME: 8.dp
                         options.forEach { option ->
                             val isSelected = option == selectedValue
 

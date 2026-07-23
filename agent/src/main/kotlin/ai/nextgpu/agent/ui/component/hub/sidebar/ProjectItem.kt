@@ -58,8 +58,8 @@ fun ProjectItem(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(HeightButtonCompact)
-                .clip(RoundedCornerShape(RadiusSmall))
+                .height(HeightButtonCompact + 5.dp)
+                .clip(RoundedCornerShape(RadiusRound))
                 .background(if (isHovered || isMenuOpen) NextGpuTheme.colors.hoverBackground else Color.Transparent)
                 .clickable(
                     interactionSource = interactionSource,
@@ -107,7 +107,7 @@ fun ProjectItem(
                                     RoundedCornerShape(RadiusMedium)
                                 )
                         ) {
-                            Column(modifier = Modifier.padding(SpacingSmall)) {
+                            Column(modifier = Modifier.padding(horizontal = SpacingSmall)) {
                                 StyledMenuItem(
                                     icon = "pencil-edit",
                                     text = "Edit",

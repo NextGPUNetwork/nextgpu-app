@@ -12,7 +12,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import ai.nextgpu.agent.service.NextGpuAgentService
 import ai.nextgpu.agent.springContext
+import ai.nextgpu.agent.ui.component.CustomButton
 import ai.nextgpu.agent.ui.theme.*
+import androidx.compose.ui.res.painterResource
 import kotlin.system.exitProcess
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -35,73 +37,79 @@ fun NukeScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Primary03Black),
+            .background(Primary03Black.copy(alpha = 0.8f)), // Slight alpha for better overlay effect
         contentAlignment = Alignment.Center
     ) {
-        Card(
+        Surface(
+            shape = RoundedCornerShape(RadiusMedium),
+            color = NextGpuTheme.colors.surface,
+            contentColor = NextGpuTheme.colors.textPrimary,
             modifier = Modifier
                 .widthIn(min = 400.dp, max = 550.dp)
-                .padding(SpacingMedium),
-            shape = RoundedCornerShape(RadiusMedium),
-            backgroundColor = MaterialTheme.colors.surface,
-            elevation = ElevationLarge
+                .padding(horizontal = SpacingLarge)
         ) {
             Column(
-                modifier = Modifier
-                    .padding(SpacingLarge)
-                    .fillMaxWidth(),
+                modifier = Modifier.padding(SpacingDialog), // Matched padding from standard popup
                 horizontalAlignment = Alignment.Start
             ) {
                 // Header
                 Row(
-                    verticalAlignment = Alignment.CenterVertically
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.padding(bottom = SpacingSmall)
                 ) {
-                    Text(text = "⚠️", style = MaterialTheme.typography.h5)
+                    Icon(
+                        painter = painterResource("icons/warning.svg"), // Ensure you have this SVG in your resources
+                        contentDescription = "Warning",
+                        tint = NextGpuTheme.colors.error,
+                        modifier = Modifier.size(IconSizeMedium) // Adjust size to perfectly align with your h6 text
+                    )
                     Spacer(modifier = Modifier.width(SpacingSmall))
                     Text(
-                        text = "DANGER ZONE",
-                        style = MaterialTheme.typography.h5,
+                        text = "Danger Zone",
+                        style = NextGpuTheme.typography.h6,
                         fontWeight = FontWeight.Bold,
-                        color = ErrorText
+                        color = NextGpuTheme.colors.error
                     )
                 }
 
-                Spacer(modifier = Modifier.height(SpacingMedium))
-                Divider(color = MaterialTheme.colors.onSurface.copy(alpha = 0.1f))
-                Spacer(modifier = Modifier.height(SpacingMedium))
+                Divider(
+                    color = NextGpuTheme.colors.border,
+                    thickness = BorderWidth,
+                    modifier = Modifier.padding(vertical = SpacingMedium)
+                )
 
                 // Warning Text
                 Text(
                     text = "Nuking the application will permanently erase:",
-                    style = MaterialTheme.typography.body1,
-                    color = MaterialTheme.colors.onSurface
+                    style = NextGpuTheme.typography.body2,
+                    color = NextGpuTheme.colors.textPrimary
                 )
 
                 Spacer(modifier = Modifier.height(SpacingSmall))
 
                 Column(modifier = Modifier.padding(start = SpacingMedium)) {
-                    Text("1. Chat history", style = MaterialTheme.typography.body2)
-                    Text("2. Models downloaded", style = MaterialTheme.typography.body2)
-                    Text("3. Hardware/Benchmark reports", style = MaterialTheme.typography.body2)
-                    Text("4. Usage statistics", style = MaterialTheme.typography.body2)
-                    Text("5. Security keys", style = MaterialTheme.typography.body2)
+                    Text("1. Chat history", style = NextGpuTheme.typography.body2, color = NextGpuTheme.colors.textSecondary)
+                    Text("2. Models downloaded", style = NextGpuTheme.typography.body2, color = NextGpuTheme.colors.textSecondary)
+                    Text("3. Hardware/Benchmark reports", style = NextGpuTheme.typography.body2, color = NextGpuTheme.colors.textSecondary)
+                    Text("4. Usage statistics", style = NextGpuTheme.typography.body2, color = NextGpuTheme.colors.textSecondary)
+                    Text("5. Security keys", style = NextGpuTheme.typography.body2, color = NextGpuTheme.colors.textSecondary)
                 }
 
                 Spacer(modifier = Modifier.height(SpacingMedium))
 
                 Text(
                     text = "After this action, no recovery is possible.",
-                    style = MaterialTheme.typography.body2,
-                    color = ErrorText,
+                    style = NextGpuTheme.typography.body2,
+                    color = NextGpuTheme.colors.error,
                     fontWeight = FontWeight.Bold
                 )
 
                 Spacer(modifier = Modifier.height(SpacingMedium))
 
                 Text(
-                    text = "Are you sure you want to do this? If so, please type in \"nuke\" (without quotes) in the following text box",
-                    style = MaterialTheme.typography.body2,
-                    color = MaterialTheme.colors.onSurface
+                    text = "Are you sure you want to do this? If so, please type in \"nuke\" (without quotes) in the following text box.",
+                    style = NextGpuTheme.typography.caption,
+                    color = NextGpuTheme.colors.textSecondary
                 )
 
                 Spacer(modifier = Modifier.height(SpacingMedium))
@@ -112,20 +120,25 @@ fun NukeScreen(
                     onValueChange = { textInput = it },
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true,
-                    placeholder = { Text("Type 'nuke'") },
+                    placeholder = {
+                        Text("Type 'nuke'", color = NextGpuTheme.colors.textSecondary)
+                    },
                     colors = TextFieldDefaults.outlinedTextFieldColors(
-                        focusedBorderColor = ErrorText,
-                        cursorColor = ErrorText,
-                        textColor = MaterialTheme.colors.onSurface
-                    )
+                        focusedBorderColor = NextGpuTheme.colors.error,
+                        unfocusedBorderColor = NextGpuTheme.colors.border,
+                        cursorColor = NextGpuTheme.colors.error,
+                        textColor = NextGpuTheme.colors.textPrimary,
+                        backgroundColor = Color.Transparent
+                    ),
+                    shape = RoundedCornerShape(RadiusMedium)
                 )
 
                 nukingError?.let {
                     Spacer(modifier = Modifier.height(SpacingSmall))
                     Text(
                         text = it,
-                        style = MaterialTheme.typography.body2,
-                        color = ErrorText,
+                        style = NextGpuTheme.typography.caption,
+                        color = NextGpuTheme.colors.error,
                         fontWeight = FontWeight.Bold
                     )
                 }
@@ -138,16 +151,20 @@ fun NukeScreen(
                     horizontalArrangement = Arrangement.End,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    TextButton(
+                    CustomButton(
+                        text = "Cancel",
                         onClick = onReturn,
-                        enabled = !isNuking
-                    ) {
-                        Text("Cancel", color = MaterialTheme.colors.onSurface)
-                    }
+                        enabled = !isNuking,
+                        backgroundColor = Color.Transparent,
+                        textColor = NextGpuTheme.colors.textSecondary,
+                        elevation = false
+                    )
 
                     Spacer(modifier = Modifier.width(SpacingSmall))
 
-                    Button(
+                    CustomButton(
+                        text = if (isNuking) "Nuking..." else "Nuke",
+                        enabled = isNukeEnabled,
                         onClick = {
                             scope.launch {
                                 isNuking = true
@@ -168,16 +185,12 @@ fun NukeScreen(
                                 }
                             }
                         },
-                        enabled = isNukeEnabled,
-                        colors = ButtonDefaults.buttonColors(
-                            backgroundColor = ErrorText,
-                            contentColor = Color.White,
-                            disabledBackgroundColor = MaterialTheme.colors.onSurface.copy(alpha = 0.12f)
-                        ),
-                        shape = RoundedCornerShape(RadiusSmall)
-                    ) {
-                        Text(if (isNuking) "NUKING..." else "NUKE")
-                    }
+                        backgroundColor = NextGpuTheme.colors.error,
+                        textColor = Color.White,
+                        disabledBackgroundColor = NextGpuTheme.colors.error.copy(alpha = 0.3f),
+                        disabledTextColor = Color.White.copy(alpha = 0.5f),
+                        elevation = false
+                    )
                 }
             }
         }

@@ -1,5 +1,5 @@
 #define MyAppName "NextGPU"
-#define MyAppVersion "0.2.0"
+#define MyAppVersion "0.2.6"
 #define MyAppPublisher "NextGPU"
 #define MyAppURL "https://nextgpu.ai"
 #define MyAppExeName "NextGPU.exe"
@@ -22,6 +22,7 @@ SolidCompression=yes
 WizardStyle=modern
 PrivilegesRequired=admin
 ArchitecturesInstallIn64BitMode=x64
+AppMutex=NextGPUInstaller
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"

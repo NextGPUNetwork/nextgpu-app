@@ -1,5 +1,6 @@
 package ai.nextgpu.agent.service;
 
+import ai.nextgpu.agent.dto.SttToolHealthResponseDto;
 import ai.nextgpu.common.exception.ErrorCode;
 import ai.nextgpu.common.exception.ValidationException;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -147,12 +148,8 @@ public class NextGpuWebService {
      * @throws Exception if an error occurs during the HTTP POST request or response processing
      */
     public void saveBenchmarkReport(BenchmarkReportDto reportDto) throws Exception {
-        try {
-            String url = this.BASE_URL + "/reports/benchmark";
-            httpUtil.post(url, reportDto, BenchmarkReportDto.class, true);
-        } catch (Exception e) {
-            throw new RuntimeException(e);
-        }
+        String url = this.BASE_URL + "/reports/benchmark";
+        httpUtil.post(url, reportDto, BenchmarkReportDto.class, true);
     }
 
     /**
@@ -162,14 +159,11 @@ public class NextGpuWebService {
      * @return {@code true} if the audit passes successfully, {@code false} otherwise
      */
     @SuppressWarnings("unchecked")
-    public boolean auditComputerForAnomalies(ComputerDto computerDto) {
+    public boolean auditComputerForAnomalies(ComputerDto computerDto) throws Exception {
         String url = this.BASE_URL + "/reports/audit";
-        try {
-            Map<String, String> responseMessage = httpUtil.post(url, computerDto, Map.class, true);
-            return responseMessage.get("audit_status").equals("Passed");
-        } catch (Exception e) {
-            throw new RuntimeException("Computer audit failed.", e);
-        }
+        Map<String, String> responseMessage = httpUtil.post(url, computerDto, Map.class, true);
+        return responseMessage.get("audit_status").equals("Passed");
+
     }
 
     /* *********************************/
@@ -205,11 +199,7 @@ public class NextGpuWebService {
         try {
             String url = this.BASE_URL + "/api/ai/models";
             // Send GET request
-            List<AiModelDto> models = JsonUtil.OBJECT_MAPPER.readValue(
-                    httpUtil.get(url, null),
-                    new TypeReference<List<AiModelDto>>() {
-                    }
-            );
+            List<AiModelDto> models = httpUtil.get(url, new TypeReference<>() {}, false);
 
             // TODO: Remove temporary filter later on.
             return models.stream()
@@ -230,7 +220,7 @@ public class NextGpuWebService {
      * @param events a map containing event names of events as keys and their corresponding properties as values,
      *               where each property's value is represented as another map of key-value pairs (the actual event data)
      *               where the key is the property name and the value is the property value
-     *               Map(Event Name -> Event Data) ==> Map<String, Object> where Object is Map<String, Object>
+     *               Map (Event Name -> Event Data) ==> Map<String, Object> where Object is Map<String, Object>
      * @throws Exception if an error occurs during the HTTP request or while processing the response
      */
     public void postEventDataInBatch(String machineHash, Map<String, Object> events) throws Exception {
@@ -252,11 +242,10 @@ public class NextGpuWebService {
 
     public boolean isSttServiceAvailable() {
         try {
-            String result = httpUtil.get("http://localhost:8177/health", null);
-            JsonNode json = JsonUtil.OBJECT_MAPPER.readTree(result);
-            return "ok".equalsIgnoreCase(json.path("status").asText());
+            SttToolHealthResponseDto result = httpUtil.get("http://localhost:8177/health", SttToolHealthResponseDto.class, false);
+            return Objects.equals(result.getStatus().toLowerCase(), "ok");
         } catch (Exception e) {
-            return false;
+            throw new RuntimeException("Your local speech-to-text tool is not reachable.");
         }
     }
 

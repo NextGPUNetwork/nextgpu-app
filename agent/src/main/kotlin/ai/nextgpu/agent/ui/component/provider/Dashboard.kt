@@ -92,10 +92,6 @@ fun Dashboard(viewModel: ProviderViewModel) {
                     onRetry = viewModel::executeRegistrationPipeline
                 )
             }
-
-            ProviderSetupState.ACTIVE_PROVIDER -> {
-                SuccessView()
-            }
         }
     }
 }

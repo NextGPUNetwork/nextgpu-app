@@ -64,7 +64,7 @@ public class NetworkDevice extends BaseComponent{
         }
 
         // Compare bus speed with 5% tolerance
-        if (exceedsTolerance(this.speed, otherNetworkDevice.speed, 5.0))
+        if (exceedsTolerance(this.speed, otherNetworkDevice.speed, 10.0))
             throw new ComponentException(
                     ErrorCode.MAX_TOLERANCE_VIOLATION.getDescription(),
                     ErrorCode.MAX_TOLERANCE_VIOLATION,

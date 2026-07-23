@@ -76,7 +76,7 @@ fun InstalledModelItem(
     val dynamicBackgroundColor = if (isHovered && !isDeleting && !isExpanded) {
         NextGpuTheme.colors.hoverBackground
     } else {
-        NextGpuTheme.colors.surface
+        Color.Transparent
     }
 
     val formattedType = remember(model.type) {

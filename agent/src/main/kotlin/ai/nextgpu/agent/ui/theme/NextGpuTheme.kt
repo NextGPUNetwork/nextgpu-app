@@ -103,7 +103,7 @@ val HeightPrompt = 160.dp
 val SidebarWidth = 270.dp
 val RightSidebarWidth = 350.dp
 val SidebarCollapsedWidth = 55.dp
-val IconSizeSidebar = 18.dp
+val IconSizeSidebar = 16.dp
 val HeightListItem = 40.dp
 
 // Layout Limits

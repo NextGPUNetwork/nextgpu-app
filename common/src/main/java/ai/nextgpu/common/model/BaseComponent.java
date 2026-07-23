@@ -5,6 +5,7 @@ import lombok.*;
 import org.hibernate.annotations.Comment;
 
 import java.util.Objects;
+import java.util.function.BiPredicate;
 
 /**
  * Abstract class that collects common attributes of Computer components. All component-related classes should inherit this class
@@ -71,22 +72,43 @@ public abstract class BaseComponent extends BaseEntity {
     public abstract void compareForAudit(BaseComponent other) throws RuntimeException;
 
     /**
+     * Compares a standard DB value against an audit value using the supplied condition.
+     * <p>
+     * {@code standardValue} should be the value from {@code this.<property>}.
+     * {@code auditValue} should be the value from {@code other<Component>.<property>}.
+     *
+     * @param standardValue the expected value from the persisted DB component
+     * @param auditValue the actual value from the audit component
+     * @param mismatchCondition returns true when the comparison should be treated as a mismatch
+     * @return false if the standard DB value is null; otherwise the result of the mismatch condition.
+     *         If the audit value is null while the standard value exists, returns true.
+     */
+    protected <T> boolean comparisonMismatch(T standardValue, T auditValue, BiPredicate<T, T> mismatchCondition) {
+        // Returning true if standardValue is null because missing value in dataset should not fail the audit
+        if (standardValue == null) return false;
+        if (auditValue == null) return true;
+
+        return mismatchCondition.test(standardValue, auditValue);
+    }
+
+    /**
      * Helper method to compare floating point numbers with percentage tolerance
      *
-     * @param value1 first value, which the value of the DB record
-     * @param value2 second value
+     * @param standardValue first value, which the value of the DB record
+     * @param auditValue second value
      * @param tolerance maximum allowed percentage difference (e.g., 5.0 for 5%)
      * @return true if the values are within the allowed percentage difference
      */
-    protected boolean exceedsTolerance(Integer value1, Integer value2, double tolerance) {
-        if (value1 == null) return false; // The value is coming from the DB record.
-        if (value2 == null) return true;
-        if (value1.equals(value2)) return false;
-        // For example, the audit system value for CPU cores is greater than the persisted value in the dataset
-        if(value2 > value1) return true;
+    protected boolean exceedsTolerance(Integer standardValue, Integer auditValue, double tolerance) {
+        // Returning true if standardValue is null because missing value in dataset should not fail the audit
+        if (standardValue == null) return false;
+        if (auditValue == null) return true; // Audit failure situation
+        if (standardValue.equals(auditValue)) return false;
+        // For example, the audit system value for CPU l3 cache is greater than the persisted value in dataset
+        if(auditValue > standardValue) return false;
 
-        double diff = Math.abs(value1 - value2);
-        double avg = (value1 + value2) / 2.0;
+        double diff = Math.abs(standardValue - auditValue);
+        double avg = (standardValue + auditValue) / 2.0;
         double percentDiff = (diff / avg) * 100.0;
 
         return percentDiff > tolerance;

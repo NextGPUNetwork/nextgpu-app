@@ -2,8 +2,12 @@ package ai.nextgpu.agent.util;
 
 import ai.nextgpu.agent.aop.Loggable;
 import ai.nextgpu.common.model.*;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sun.jna.platform.win32.Advapi32Util;
 import com.sun.jna.platform.win32.WinReg;
+import lombok.AllArgsConstructor;
+import lombok.Getter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.apache.commons.csv.CSVFormat;
@@ -30,9 +34,6 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.StringReader;
 import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -59,11 +60,11 @@ public class HardwareUtil {
     // Cache of previous CPU tick counts to compute usage over time between calls
     private volatile long[] lastCpuTicks;
 
+    // Sink for the boost-diagnostic burner loop; keeps the JIT from eliminating the loop body.
+    private static volatile double BOOST_DIAG_SINK;
+
     // This file contains prefixes of MAC addresses and their respective vendors
     private static final String NIC_PROVIDERS_FILENAME = "nic-providers.tsv";
-
-    // An external API to fetch Vendor by MAC prefix
-    private static final String MAC_VENDOR_API = "https://api.macvendors.com/";
 
     private static final Map<String, String> VENDOR_MAC_MAP = new HashMap<>();
 
@@ -114,11 +115,11 @@ public class HardwareUtil {
     }
 
     /**
-     * Retrieves the vendor name of a given MAC address.
-     * It first checks a local OUI map and falls back to MacVendors API if needed.
+     * Retrieves the vendor name for a given MAC address by looking up its 24-bit OUI prefix in the
+     * local IEEE OUI database (loaded from {@code nic-providers.tsv}).
      *
      * @param macAddress The MAC address (format: "00:1A:2B:3C:4D:5E")
-     * @return The vendor name or "Unknown Vendor" if not found.
+     * @return The vendor name, or "Unknown Vendor" if the prefix is not registered locally.
      */
     @Loggable
     public String getVendorByMacAddress(String macAddress) {
@@ -130,25 +131,9 @@ public class HardwareUtil {
         if (cleanedMacAddress.length() < 6) {
             return unknown;
         }
-        String macPrefix = cleanedMacAddress.substring(0, 6);
-
-        // Check in local map
-        if (VENDOR_MAC_MAP.containsKey(macPrefix)) {
-            return VENDOR_MAC_MAP.get(macPrefix);
-        }
-
-        // Fallback to MacVendors API
-        try (HttpClient httpClient = HttpClient.newHttpClient()) {
-            HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(MAC_VENDOR_API + macPrefix))
-                    .timeout(java.time.Duration.ofSeconds(3))
-                    .build();
-            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-            return response.statusCode() == 200 ? response.body() : unknown;
-        } catch (IOException | InterruptedException e) {
-            log.error("Failed to identify NIC vendor", e);
-            return unknown;
-        }
+        // The first 24 bits (6 hex chars) are the OUI, which identifies the vendor.
+        String oui = cleanedMacAddress.substring(0, 6);
+        return VENDOR_MAC_MAP.getOrDefault(oui, unknown);
     }
 
     /**
@@ -158,36 +143,29 @@ public class HardwareUtil {
      * @return List of {@link Cpu} objects
      */
     public Set<Cpu> detectCpus() {
-        HardwareAbstractionLayer hardware = detectHardwareSpecifications();
-        CentralProcessor processor = hardware.getProcessor();
+        // Prefer an OS-specific query for accurate CPU details; fall back to OSHI when unavailable.
+        Cpu baseCpu = null;
+        int packageCount = 0;
 
-        // Get the number of CPU packages (physical chips)
-        int packageCount = processor.getPhysicalPackageCount();
-        if (packageCount == 0) {
-            log.error("No CPU detected.");
-            return Collections.emptySet();
+        List<Cpu> osCpus = readCpusInfoFromOS();
+        if (!osCpus.isEmpty()) {
+            // Each element is one physical CPU package.
+            baseCpu = osCpus.getFirst();
+            packageCount = osCpus.size();
         }
 
-        // Initialize CPU object based on the first processor
-        Cpu baseCpu = Cpu.builder()
-                .cores(processor.getPhysicalProcessorCount())
-                .threads(processor.getLogicalProcessorCount())
-                .architecture(CpuArchitecture.UNKNOWN)
-                .maxClock((int) (processor.getMaxFreq() / 1_000_000)) // Convert Hz to MHz
-                .build();
+        if (baseCpu == null) {
+            HardwareAbstractionLayer hardware = detectHardwareSpecifications();
+            CentralProcessor processor = hardware.getProcessor();
 
-        CentralProcessor.ProcessorIdentifier identifier = processor.getProcessorIdentifier();
-        baseCpu.setManufacturer(identifier.getVendor());
-        baseCpu.setName(identifier.getName());
-        baseCpu.setProductIdentifier(identifier.getProcessorID());
-        baseCpu.setArchitecture(identifyCpuArchitecture(baseCpu.getName() + "; " + identifier.getFamily()));
-        baseCpu.setDescription(processor.toString());
-
-        // Get L3 Cache (take the highest level cache available)
-        List<ProcessorCache> caches = processor.getProcessorCaches();
-        caches.stream().max(Comparator.comparingInt(ProcessorCache::getLevel)).ifPresent(
-                highestCache -> baseCpu.setL3Cache(highestCache.getCacheSize() / 1024)
-        );
+            // Get the number of CPU packages (physical chips)
+            packageCount = processor.getPhysicalPackageCount();
+            if (packageCount == 0) {
+                log.error("No CPU detected.");
+                return Collections.emptySet();
+            }
+            baseCpu = buildBaseCpuFromOshi(processor);
+        }
 
         // Fetch missing specifications from AIService only once
         try {
@@ -211,11 +189,28 @@ public class HardwareUtil {
             baseCpu.setModel((String) response.get("model"));
             baseCpu.setIsDiscontinued((Boolean) response.get("idDiscontinued"));
             baseCpu.setTdpWatts((Integer) response.get("tdp"));
-            baseCpu.setMinClock((Integer) response.get("minClock"));
+            // Only let the AI value override minClock when present, so it doesn't clobber the
+            // OS/OSHI-sourced base clock with null.
+            Integer aiMinClock = (Integer) response.get("minClock");
+            if (aiMinClock != null) {
+                baseCpu.setMinClock(aiMinClock);
+            }
             baseCpu.setYearReleased((Integer) response.get("yearReleased"));
 
         } catch (Exception e) {
             log.error("Failed to generate prompt response!", e.getMessage());
+        }
+
+        // Measure this machine's actual clock envelope (reflects BIOS undervolt, power limits and
+        // current thermals). Measured values win; the OS/AI figures remain as fallback for platforms
+        // that don't report live frequencies (e.g. some VMs), where the measurements return 0.
+        int measuredMinClock = measureMinClockMhz();
+        if (measuredMinClock > 0) {
+            baseCpu.setMinClock(measuredMinClock);
+        }
+        int measuredMaxClock = measureMaxAchievableClockMhz();
+        if (measuredMaxClock > 0) {
+            baseCpu.setMaxClock(measuredMaxClock);
         }
 
         // Generate a list of CPUs by cloning base CPU
@@ -235,6 +230,290 @@ public class HardwareUtil {
         return cpus;
     }
 
+
+    /**
+     * Builds a base {@link Cpu} from OSHI's {@link CentralProcessor}. Used as a fallback when an
+     * OS-specific query is unavailable (non-Windows, or wmic missing/failed).
+     *
+     * @param processor the OSHI processor abstraction
+     * @return a populated base {@link Cpu} (before AI enrichment)
+     */
+    private Cpu buildBaseCpuFromOshi(CentralProcessor processor) {
+        Cpu baseCpu = Cpu.builder()
+                .cores(processor.getPhysicalProcessorCount())
+                .threads(processor.getLogicalProcessorCount())
+                .architecture(CpuArchitecture.UNKNOWN)
+                .maxClock((int) (processor.getMaxFreq() / 1_000_000)) // Convert Hz to MHz
+                .build();
+
+        CentralProcessor.ProcessorIdentifier identifier = processor.getProcessorIdentifier();
+        baseCpu.setManufacturer(identifier.getVendor());
+        baseCpu.setName(identifier.getName());
+        baseCpu.setProductIdentifier(identifier.getProcessorID());
+        baseCpu.setArchitecture(identifyCpuArchitecture(baseCpu.getName() + "; " + identifier.getFamily()));
+        baseCpu.setDescription(processor.toString());
+
+        // Get L3 Cache (take the highest level cache available)
+        List<ProcessorCache> caches = processor.getProcessorCaches();
+        caches.stream().max(Comparator.comparingInt(ProcessorCache::getLevel)).ifPresent(
+                highestCache -> baseCpu.setL3Cache(highestCache.getCacheSize() / 1024)
+        );
+        return baseCpu;
+    }
+
+    /**
+     * Reads CPU details directly from the operating system and builds one base {@link Cpu} per
+     * physical package. Returns an empty list when OS-level detection is unavailable, allowing
+     * callers to fall back to OSHI.
+     * <p>
+     * Reported clock speed is in MHz and cache size in KB, matching the {@link Cpu} model, so no
+     * unit conversion is required. Property lookups are case-insensitive.
+     *
+     * @return a list of base {@link Cpu} objects (before AI enrichment), one per physical CPU
+     */
+    private List<Cpu> readCpusInfoFromOS() {
+        List<Cpu> cpus = new ArrayList<>();
+        if (OSUtil.IS_WINDOWS) {
+        try {
+            String output = OSUtil.executeCommand("wmic cpu get /format:list");
+            if (output == null || output.isBlank()) {
+                return cpus;
+            }
+
+            // Output contains one key=value block per physical CPU, blocks separated by blank lines.
+            // Case-insensitive keys so properties match regardless of casing.
+            List<Map<String, String>> blocks = new ArrayList<>();
+            Map<String, String> props = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
+            for (String rawLine : output.split("\\r?\\n")) {
+                String line = rawLine.trim();
+                if (line.isEmpty()) {
+                    if (!props.isEmpty()) {
+                        blocks.add(props);
+                        props = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
+                    }
+                    continue;
+                }
+                int eq = line.indexOf('=');
+                if (eq <= 0) {
+                    continue;
+                }
+                String value = line.substring(eq + 1).trim();
+                if (!value.isEmpty()) {
+                    props.put(line.substring(0, eq).trim(), value);
+                }
+            }
+            if (!props.isEmpty()) {
+                blocks.add(props);
+            }
+
+            // wmic does not report a base/min clock, so source it from OSHI's vendor (nominal) frequency.
+            long vendorFreqHz = detectHardwareSpecifications().getProcessor()
+                    .getProcessorIdentifier().getVendorFreq();
+            Integer minClock = vendorFreqHz > 0 ? (int) (vendorFreqHz / 1_000_000) : null; // Hz -> MHz
+
+            for (Map<String, String> block : blocks) {
+                Cpu cpu = Cpu.builder()
+                        .cores(parseIntOrNull(block.get("NumberOfCores")))
+                        .threads(parseIntOrNull(block.get("NumberOfLogicalProcessors")))
+                        .architecture(CpuArchitecture.UNKNOWN)
+                        .maxClock(parseIntOrNull(block.get("MaxClockSpeed"))) // MHz
+                        .minClock(minClock)
+                        .build();
+
+                String manufacturer = block.getOrDefault("Manufacturer", "");
+                String name = block.getOrDefault("Name", "").trim().replace(manufacturer, "");
+                cpu.setManufacturer(manufacturer);
+                cpu.setModel(name);
+                cpu.setName((manufacturer + " " + name).trim());
+                cpu.setProductIdentifier(block.get("ProcessorId"));
+
+                // Resolve architecture from the numeric architecture code, then fall back to
+                // name-based detection if the code is unrecognized.
+                CpuArchitecture arch = mapArchitectureCode(block.get("Architecture"));
+                if (arch == CpuArchitecture.UNKNOWN) {
+                    arch = identifyCpuArchitecture(cpu.getName() + "; " + block.getOrDefault("Caption", ""));
+                }
+                cpu.setArchitecture(arch);
+
+                Integer l3Kb = parseIntOrNull(block.get("L3CacheSize")); // KB
+                if (l3Kb != null && l3Kb > 0) {
+                    cpu.setL3Cache(l3Kb);
+                }
+                cpu.setDescription(block.getOrDefault("Caption", block.getOrDefault("Description", "")));
+                cpus.add(cpu);
+            }
+        } catch (Exception e) {
+            log.warn("Failed to read CPU info from OS; falling back to OSHI", e);
+        }
+        } else if (OSUtil.IS_LINUX) {
+            try {
+                String output = OSUtil.executeCommand("lscpu --json --output-all");
+                if (output == null || output.isBlank()) {
+                    return cpus;
+                }
+
+                // lscpu returns a nested field/data tree under "lscpu"; flatten it into a single
+                // case-insensitive map keyed by field name (colon included, as lscpu emits it).
+                JsonNode root = new ObjectMapper().readTree(output);
+                Map<String, String> flat = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
+                Deque<JsonNode> stack = new ArrayDeque<>();
+                root.path("lscpu").forEach(stack::push);
+                while (!stack.isEmpty()) {
+                    JsonNode node = stack.pop();
+                    String field = node.path("field").asText("").trim();
+                    JsonNode data = node.get("data");
+                    if (!field.isEmpty() && data != null && !data.isNull()) {
+                        flat.putIfAbsent(field, data.asText().trim());
+                    }
+                    if (node.path("children").isArray()) {
+                        node.path("children").forEach(stack::push);
+                    }
+                }
+
+                // Physical cores = cores-per-socket * sockets; threads = total logical CPUs.
+                Integer coresPerSocket = parseIntOrNull(flat.get("Core(s) per socket:"));
+                Integer sockets = parseIntOrNull(flat.get("Socket(s):"));
+                Integer cores = (coresPerSocket != null && sockets != null)
+                        ? coresPerSocket * sockets : coresPerSocket;
+                Integer threads = parseIntOrNull(flat.get("CPU(s):"));
+
+                // Max clock: prefer "CPU max MHz:", fall back to "CPU MHz:" (both absent in some VMs).
+                Integer maxClock = null;
+                String maxMhz = flat.getOrDefault("CPU max MHz:", flat.get("CPU MHz:"));
+                if (maxMhz != null && !maxMhz.isBlank()) {
+                    try {
+                        maxClock = (int) Double.parseDouble(maxMhz.trim());
+                    } catch (NumberFormatException ignored) {
+                    }
+                }
+
+                // Min/base clock: prefer lscpu's "CPU min MHz:", otherwise fall back to OSHI's
+                // vendor (nominal) frequency.
+                Integer minClock = null;
+                String minMhz = flat.get("CPU min MHz:");
+                if (minMhz != null && !minMhz.isBlank()) {
+                    try {
+                        minClock = (int) Double.parseDouble(minMhz.trim());
+                    } catch (NumberFormatException ignored) {
+                    }
+                }
+                if (minClock == null) {
+                    long vendorFreqHz = detectHardwareSpecifications().getProcessor()
+                            .getProcessorIdentifier().getVendorFreq();
+                    if (vendorFreqHz > 0) {
+                        minClock = (int) (vendorFreqHz / 1_000_000); // Hz -> MHz
+                    }
+                }
+
+                // L3 cache, e.g. "16 MiB (1 instance)" -> convert to KB to match the Cpu model.
+                Integer l3Kb = null;
+                String l3 = flat.get("L3:");
+                if (l3 != null && !l3.isBlank()) {
+                    String[] parts = l3.trim().split("\\s+");
+                    try {
+                        double size = Double.parseDouble(parts[0]);
+                        String unit = parts.length > 1 ? parts[1].toUpperCase() : "KIB";
+                        if (unit.startsWith("GI")) {
+                            l3Kb = (int) (size * 1024 * 1024);
+                        } else if (unit.startsWith("MI")) {
+                            l3Kb = (int) (size * 1024);
+                        } else if (unit.startsWith("KI")) {
+                            l3Kb = (int) size;
+                        } else { // assume bytes
+                            l3Kb = (int) (size / 1024);
+                        }
+                    } catch (NumberFormatException ignored) {
+                    }
+                }
+                String manufacturer = flat.getOrDefault("Vendor ID:", "");
+                String modelName = flat.getOrDefault("Model name:", "").trim().replace(manufacturer, "");
+                String archField = flat.getOrDefault("Architecture:", "");
+
+                Cpu cpu = Cpu.builder()
+                        .cores(cores)
+                        .threads(threads)
+                        .architecture(identifyCpuArchitecture(modelName + "; " + archField))
+                        .maxClock(maxClock)
+                        .minClock(minClock)
+                        .build();
+                cpu.setManufacturer(manufacturer);
+                cpu.setModel(modelName);
+                cpu.setName((manufacturer + " " + modelName).trim());
+                if (l3Kb != null && l3Kb > 0) {
+                    cpu.setL3Cache(l3Kb);
+                }
+
+                // Compose a product identifier from family/model/stepping when available.
+                String family = flat.get("CPU family:");
+                String model = flat.get("Model:");
+                String stepping = flat.get("Stepping:");
+                if (family != null || model != null || stepping != null) {
+                    cpu.setProductIdentifier("Family " + family + " Model " + model + " Stepping " + stepping);
+                }
+                cpu.setDescription(modelName.isEmpty() ? archField : (manufacturer + " " + modelName).trim());
+
+                // lscpu reports aggregate info for the machine; emit one entry per socket so the
+                // caller's package count matches the number of physical CPUs.
+                int packages = (sockets != null && sockets > 0) ? sockets : 1;
+                for (int i = 0; i < packages; i++) {
+                    Cpu clone = cpu.toBuilder().build();
+                    clone.setManufacturer(cpu.getManufacturer());
+                    clone.setModel(cpu.getModel());
+                    clone.setName(cpu.getName());
+                    clone.setDescription(cpu.getDescription());
+                    clone.setProductIdentifier(cpu.getProductIdentifier());
+
+                    clone.setArchitecture(cpu.getArchitecture());
+                    clone.setCores(cpu.getCores());
+                    clone.setThreads(cpu.getThreads());
+                    clone.setMinClock(cpu.getMinClock());
+                    clone.setMaxClock(cpu.getMaxClock());
+                    clone.setL3Cache(cpu.getL3Cache());
+
+                    cpus.add(clone);
+                }
+            } catch (Exception e) {
+                log.warn("Failed to read CPU info from OS; falling back to OSHI", e);
+            }
+        }
+        return cpus;
+    }
+
+    /**
+     * Maps a numeric processor architecture code to a {@link CpuArchitecture}.
+     *
+     * @param code the numeric architecture code as a string (e.g. "9")
+     * @return the matching {@link CpuArchitecture}, or UNKNOWN if unrecognized
+     */
+    private CpuArchitecture mapArchitectureCode(String code) {
+        if (code == null) {
+            return CpuArchitecture.UNKNOWN;
+        }
+        return switch (code.trim()) {
+            case "0", "9" -> CpuArchitecture.X86_64; // x86 / x64
+            case "5" -> CpuArchitecture.ARM;
+            case "12" -> CpuArchitecture.ARM_64;
+            case "3" -> CpuArchitecture.PPC;
+            default -> CpuArchitecture.UNKNOWN;
+        };
+    }
+
+    /**
+     * Parses an integer from a raw string value, returning {@code null} when absent or malformed.
+     *
+     * @param value the raw string value
+     * @return the parsed Integer, or null
+     */
+    private Integer parseIntOrNull(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        try {
+            return Integer.parseInt(value.trim());
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
 
     /**
      * Returns the CPU Architecture by CPU name. The method tries to detect based on certain strings that may be part of the CPU name
@@ -546,12 +825,31 @@ public class HardwareUtil {
      */
     public Set<NetworkDevice> detectNetworkInterfaces() {
         HardwareAbstractionLayer hardware = detectHardwareSpecifications();
-        Set<NetworkDevice> nics = new HashSet<>();
         List<NetworkIF> networkIFs = hardware.getNetworkIFs();
+
+        // Windows layers several WFP/QoS/LightWeight-Filter pseudo-adapters on top of each physical
+        // NIC, all sharing the same MAC address. Collapse them to one entry per MAC, keeping the
+        // base adapter. Its name (e.g. "Realtek PCIe GbE Family Controller") is a prefix of the
+        // filtered variants, so preferring the shortest display name selects it and is locale-safe.
+        Map<String, NetworkIF> byMac = new LinkedHashMap<>();
         for (NetworkIF networkIF : networkIFs) {
-            if (networkIF.getDisplayName().toLowerCase().contains("virtual") || networkIF.getIfOperStatus().getValue() == 2) {
+            String name = networkIF.getDisplayName();
+            if (name == null || name.toLowerCase().contains("virtual")
+                    || networkIF.getIfOperStatus().getValue() == 2) {
                 continue;
             }
+            String mac = networkIF.getMacaddr();
+            if (mac == null || mac.isBlank()) {
+                continue;
+            }
+            NetworkIF existing = byMac.get(mac);
+            if (existing == null || name.length() < existing.getDisplayName().length()) {
+                byMac.put(mac, networkIF);
+            }
+        }
+
+        Set<NetworkDevice> nics = new HashSet<>();
+        for (NetworkIF networkIF : byMac.values()) {
             networkIF.updateAttributes();
             NetworkDevice nic = NetworkDevice.builder()
                     .macAddress(networkIF.getMacaddr())
@@ -677,9 +975,53 @@ public class HardwareUtil {
     }
 
     /**
+     * Measures the lowest clock the CPU idles down to. Samples every reported per-core current
+     * frequency once per second across a ~3-second window and returns the minimum value observed.
+     * Intended to run while the machine is otherwise idle so cores are free to down-clock.
+     *
+     * @return the minimum observed clock in MHz, or 0 if the platform does not report frequencies
+     */
+    public int measureMinClockMhz() {
+        CentralProcessor processor = detectHardwareSpecifications().getProcessor();
+        long minHz = Long.MAX_VALUE;
+        try {
+            long end = System.currentTimeMillis() + 3000;
+            do {
+                for (long hz : processor.getCurrentFreq()) {
+                    if (hz > 0 && hz < minHz) {
+                        minHz = hz;
+                    }
+                }
+                Thread.sleep(1000);
+            } while (System.currentTimeMillis() < end);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+        return minHz == Long.MAX_VALUE ? 0 : (int) (minHz / 1_000_000);
+    }
+
+    /**
+     * Returns the highest current clock across all logical processors (threads) as a single live
+     * reading. {@code getCurrentFreq()} reports one clock per thread; this keeps the fastest.
+     *
+     * @return the highest current clock in MHz, or 0 if the platform does not report frequencies
+     */
+    public int measureMaxAchievableClockMhz() {
+        CentralProcessor processor = detectHardwareSpecifications().getProcessor();
+        long maxHz = 0;
+        for (long hz : processor.getCurrentFreq()) {
+            if (hz > maxHz) {
+                maxHz = hz;
+            }
+        }
+        return (int) (maxHz / 1_000_000);
+    }
+
+    /**
      * Returns last reading from CPU's thermal sensor
      */
     public double readCurrentCpuTemperature() {
+        // TODO: Complete missing functionality of the reading CPU current temperature
 //        HardwareAbstractionLayer hardware = detectHardwareSpecifications();
 //        return hardware.getSensors().getCpuTemperature();
         return 0f;
@@ -856,8 +1198,8 @@ public class HardwareUtil {
         OperatingSystem os = systemInfo.getOperatingSystem();
         String osFamily = os.getFamily();
         String version = os.getVersionInfo().getVersion();
-
-        return osFamily + " " + version;
+        String buildNumber = os.getVersionInfo().getBuildNumber();
+        return osFamily + " " + version + " " + buildNumber;
     }
 
     /**
@@ -1129,9 +1471,7 @@ public class HardwareUtil {
      * @see #normalize(String)
      */
     private static String getMachineGuid() {
-
         try {
-
             return normalize(
                     Advapi32Util.registryGetStringValue(
                             WinReg.HKEY_LOCAL_MACHINE,
@@ -1139,7 +1479,6 @@ public class HardwareUtil {
                             "MachineGuid"
                     )
             );
-
         } catch (Exception ignored) {
             return "";
         }

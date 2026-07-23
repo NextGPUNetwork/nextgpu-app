@@ -2,8 +2,7 @@ param (
     [switch]$OverwriteExistingWsl = $false,
     [switch]$SkipAdminCheck = $false,
     [string]$NextGpuHomeOverride = "",
-    [switch]$SkipGpuCheck = $false,
-    [string]$InstallProfile = "ai_hub"
+    [switch]$SkipGpuCheck = $false
 )
 
 # ---------------------------------
@@ -22,7 +21,6 @@ if (
     if ($OverwriteExistingWsl) { $argList += "-OverwriteExistingWsl" }
     if ($NextGpuHomeOverride) { $argList += @("-NextGpuHomeOverride", "`"$NextGpuHomeOverride`"") }
     if ($SkipGpuCheck) { $argList += "-SkipGpuCheck" }
-    if ($InstallProfile) { $argList += @("-InstallProfile", "`"$InstallProfile`"") }
 
     $psi.Arguments = $argList -join " "
     $psi.Verb = "runas"
@@ -42,10 +40,6 @@ $OutputEncoding = $utf8NoBom
 # -------------------------
 # Initialization & Paths
 # -------------------------
-$OllamaPort = 11434
-$ComfyPort = 8188
-$SttToolPort = 8177
-
 if ([string]::IsNullOrWhiteSpace($NextGpuHomeOverride)) {
     $NextGpuHome = Join-Path $env:LOCALAPPDATA "NextGPU"
 } else {
@@ -302,7 +296,7 @@ $Password = (Get-Content -Path $CredentialFile -Raw).Trim()
 # -------------------------
 if (-not (Is-StepDone "wsl_install")) {
     Update-Step "wsl_install" "Configuring Windows Subsystem for Linux (WSL)" "RUNNING" 5
-    
+
     Write-Host "Executing host command for: Updating WSL" -ForegroundColor Cyan
     wsl --update 2>&1 | ForEach-Object { Write-Host $_ }
     if ($LASTEXITCODE -ne 0) {
@@ -442,7 +436,7 @@ sudo ln -sf /usr/lib/wsl/lib/nvidia-smi /usr/local/bin/nvidia-smi
 nvidia-smi
 
 sudo apt update
-sudo DEBIAN_FRONTEND=noninteractive apt install -y build-essential gnupg ca-certificates wget sysbench
+sudo DEBIAN_FRONTEND=noninteractive apt install -y build-essential gnupg ca-certificates wget sysbench util-linux fio net-tools
 
 rm -f cuda-keyring_1.1-1_all.deb
 wget --tries=3 --show-progress https://developer.download.nvidia.com/compute/cuda/repos/wsl-ubuntu/x86_64/cuda-keyring_1.1-1_all.deb
@@ -504,7 +498,6 @@ sudo DEBIAN_FRONTEND=noninteractive apt install -y curl git python3 python3-pip 
     Write-Host ">>> Step 'base_packages' already COMPLETED. Resuming..." -ForegroundColor Gray
 }
 
-if ($InstallProfile -ne "provider") {
 # -------------------------
 # 5. Ollama and DeepSeek
 # -------------------------
@@ -536,7 +529,7 @@ fi
 sudo mkdir -p /etc/systemd/system/ollama.service.d
 cat <<EOF | sudo tee /etc/systemd/system/ollama.service.d/override.conf >/dev/null
 [Service]
-Environment="OLLAMA_HOST=0.0.0.0:$OllamaPort"
+Environment="OLLAMA_HOST=0.0.0.0:11434"
 Environment="OLLAMA_KEEP_ALIVE=-1"
 Environment="OLLAMA_MAX_LOADED_MODELS=1"
 Environment="PATH=/usr/local/cuda/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
@@ -591,7 +584,7 @@ WorkingDirectory=/opt/nextgpu/comfy/ComfyUI
 Environment=PYTHONUNBUFFERED=1
 Environment=PATH=/usr/local/cuda/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 Environment=LD_LIBRARY_PATH=/usr/local/cuda/lib64
-ExecStart=/opt/nextgpu/comfy/ComfyUI/.venv/bin/python /opt/nextgpu/comfy/ComfyUI/main.py --listen 0.0.0.0 --port $ComfyPort --base-directory /opt/nextgpu/comfy/basedir
+ExecStart=/opt/nextgpu/comfy/ComfyUI/.venv/bin/python /opt/nextgpu/comfy/ComfyUI/main.py --listen 0.0.0.0 --port 8188 --base-directory /opt/nextgpu/comfy/basedir
 Restart=always
 RestartSec=5
 
@@ -671,7 +664,7 @@ User=nextgpu
 Group=nextgpu
 WorkingDirectory=/opt/nextgpu/stt-tool
 Environment=HOST=0.0.0.0
-Environment=PORT=$SttToolPort
+Environment=PORT=8177
 Environment=PYTHONUNBUFFERED=1
 ExecStart=/opt/nextgpu/stt-tool/.venv/bin/python -m src.app
 Restart=always
@@ -710,9 +703,9 @@ Start-Sleep -Seconds 5
 Write-Host "Resolved nextgpu WSL IP: $wslIp" -ForegroundColor Cyan
 
 $proxyMappings = @(
-    @{ Name = "Ollama"; Port = $OllamaPort; HealthUrl = "http://127.0.0.1:$OllamaPort/api/tags"; FirewallName = "NextGPU Ollama localhost $OllamaPort" }
-    @{ Name = "ComfyUI"; Port = $ComfyPort; HealthUrl = "http://127.0.0.1:$ComfyPort"; FirewallName = "NextGPU ComfyUI localhost $ComfyPort" }
-    @{ Name = "NextGPU STT Tool"; Port = $SttToolPort; HealthUrl = "http://127.0.0.1:$SttToolPort/health"; FirewallName = "NextGPU STT Tool localhost $SttToolPort" }
+    @{ Name = "Ollama"; Port = 11434; HealthUrl = "http://127.0.0.1:11434/api/tags"; FirewallName = "NextGPU Ollama localhost 11434" }
+    @{ Name = "ComfyUI"; Port = 8188; HealthUrl = "http://127.0.0.1:8188"; FirewallName = "NextGPU ComfyUI localhost 8188" }
+    @{ Name = "NextGPU STT Tool"; Port = 8177; HealthUrl = "http://127.0.0.1:8177/health"; FirewallName = "NextGPU STT Tool localhost 8177" }
 )
 
 foreach ($mapping in $proxyMappings) {
@@ -742,16 +735,16 @@ if ($null -ne $redisFirewallRule) {
     Remove-NetFirewallRule -DisplayName "NextGPU Redis localhost 6379"
 }
 
-curl.exe --fail --silent --show-error http://127.0.0.1:$OllamaPort/api/tags | Out-Null
+curl.exe --fail --silent --show-error http://127.0.0.1:11434/api/tags | Out-Null
 if ($LASTEXITCODE -ne 0) {
     Update-Step "wsl_service_proxies" "Configuring Windows localhost proxies for WSL services" "FAILED" 89 `
-                    "Ollama proxy was configured, but http://127.0.0.1:$OllamaPort/api/tags is still unreachable."
+                    "Ollama proxy was configured, but http://127.0.0.1:11434/api/tags is still unreachable."
 }
 Write-Host "ollama-api-ready-from-windows-localhost"
 
 $success = $false
 for ($i = 0; $i -lt 20; $i++) {
-    curl.exe --fail --silent http://127.0.0.1:$ComfyPort 2>$null
+    curl.exe --fail --silent http://127.0.0.1:8188 2>$null
     if ($LASTEXITCODE -eq 0) {
         $success = $true
         break
@@ -761,13 +754,13 @@ for ($i = 0; $i -lt 20; $i++) {
 
 if (-not $success) {
     Update-Step "wsl_service_proxies" "Configuring Windows localhost proxies for WSL services" "FAILED" 89 `
-                   "ComfyUI proxy was configured, but http://127.0.0.1:$ComfyPort is still unreachable."
+                   "ComfyUI proxy was configured, but http://127.0.0.1:8188 is still unreachable."
 }
 Write-Host "comfyui-ready-from-windows-localhost"
 
 $success = $false
 for ($i = 0; $i -lt 20; $i++) {
-    curl.exe --fail --silent http://127.0.0.1:$SttToolPort/health 2>$null
+    curl.exe --fail --silent http://127.0.0.1:8177/health 2>$null
     if ($LASTEXITCODE -eq 0) {
         $success = $true
         break
@@ -777,7 +770,7 @@ for ($i = 0; $i -lt 20; $i++) {
 
 if (-not $success) {
     Update-Step "wsl_service_proxies" "Configuring Windows localhost proxies for WSL services" "FAILED" 89 `
-                   "NextGPU STT Tool proxy was configured, but http://127.0.0.1:$SttToolPort/health is still unreachable."
+                   "NextGPU STT Tool proxy was configured, but http://127.0.0.1:8177/health is still unreachable."
 }
 Write-Host "stt-tool-ready-from-windows-localhost"
 
@@ -794,38 +787,34 @@ if (-not (Is-StepDone "service_verify")) {
     RunWSL "systemctl is-active --quiet nextgpu-stt-tool && echo stt-tool-active" "service_verify" "Validating NextGPU STT Tool service state"
     # RunWSL "systemctl is-active --quiet comfyui && echo comfyui-active" "service_verify" "Validating ComfyUI service state"
 
-    RunWSL "curl -fsS http://127.0.0.1:$OllamaPort/api/tags >/dev/null && echo ollama-api-ready-inside-wsl" "service_verify" "Validating Ollama API endpoint inside WSL"
-    RunWSL "curl -fsS http://127.0.0.1:$SttToolPort/health >/dev/null && echo stt-tool-ready-inside-wsl" "service_verify" "Validating NextGPU STT Tool endpoint inside WSL"
-    # RunWSL "curl -fsS http://127.0.0.1:$ComfyPort >/dev/null && echo comfyui-ready-inside-wsl" "service_verify" "Validating ComfyUI endpoint inside WSL"
+    RunWSL "curl -fsS http://127.0.0.1:11434/api/tags >/dev/null && echo ollama-api-ready-inside-wsl" "service_verify" "Validating Ollama API endpoint inside WSL"
+    RunWSL "curl -fsS http://127.0.0.1:8177/health >/dev/null && echo stt-tool-ready-inside-wsl" "service_verify" "Validating NextGPU STT Tool endpoint inside WSL"
+    # RunWSL "curl -fsS http://127.0.0.1:8188 >/dev/null && echo comfyui-ready-inside-wsl" "service_verify" "Validating ComfyUI endpoint inside WSL"
 
-    curl.exe --fail --silent --show-error http://127.0.0.1:$OllamaPort/api/tags | Out-Null
+    curl.exe --fail --silent --show-error http://127.0.0.1:11434/api/tags | Out-Null
     if ($LASTEXITCODE -ne 0) {
         Update-Step "service_verify" "Verifying native AI services" "FAILED" 94 `
-                        "Ollama is running inside WSL, but Windows 127.0.0.1:$OllamaPort is unreachable."
+                        "Ollama is running inside WSL, but Windows 127.0.0.1:11434 is unreachable."
     }
     Write-Host "ollama-api-ready-from-windows-localhost"
 
-    curl.exe --fail --silent --show-error http://127.0.0.1:$ComfyPort | Out-Null
+    curl.exe --fail --silent --show-error http://127.0.0.1:8188 | Out-Null
     if ($LASTEXITCODE -ne 0) {
         Update-Step "service_verify" "Verifying native AI services" "FAILED" 94 `
-                        "ComfyUI is running inside WSL, but Windows 127.0.0.1:$ComfyPort is unreachable."
+                        "ComfyUI is running inside WSL, but Windows 127.0.0.1:8188 is unreachable."
     }
     Write-Host "comfyui-ready-from-windows-localhost"
 
-    curl.exe --fail --silent --show-error http://127.0.0.1:$SttToolPort/health | Out-Null
+    curl.exe --fail --silent --show-error http://127.0.0.1:8177/health | Out-Null
     if ($LASTEXITCODE -ne 0) {
         Update-Step "service_verify" "Verifying native AI services" "FAILED" 94 `
-                        "NextGPU STT Tool is running inside WSL, but Windows 127.0.0.1:$SttToolPort/health is unreachable."
+                        "NextGPU STT Tool is running inside WSL, but Windows 127.0.0.1:8177/health is unreachable."
     }
     Write-Host "stt-tool-ready-from-windows-localhost"
 
     Update-Step "service_verify" "Verifying native AI services" "COMPLETED" 97
 } else {
     Write-Host ">>> Step 'service_verify' already COMPLETED. Resuming..." -ForegroundColor Gray
-}
-
-} else {
-    Write-Host ">>> Install Profile is 'provider'. Skipping Ollama, ComfyUI, and STT-Tool proxies, and service verification..." -ForegroundColor Yellow
 }
 
 # -------------------------------------------------------
@@ -840,10 +829,10 @@ if (-not (Is-StepDone "startup_task")) {
 
     Start-Process wsl -ArgumentList "-d nextgpu --exec /bin/true" -WindowStyle Hidden
 
-    if ($InstallProfile -ne "provider") {
-            wsl -d nextgpu -- systemctl restart ollama
-            wsl -d nextgpu -- systemctl restart nextgpu-stt-tool
-    }
+
+    wsl -d nextgpu -- systemctl restart ollama
+    wsl -d nextgpu -- systemctl restart nextgpu-stt-tool
+
 
     Update-Step "startup_task" "Registering Windows startup task" "COMPLETED" 99
 } else {

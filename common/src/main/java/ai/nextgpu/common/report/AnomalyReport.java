@@ -1,6 +1,5 @@
 package ai.nextgpu.common.report;
 
-import ai.nextgpu.common.util.MapAttributeConverter;
 import com.fasterxml.jackson.databind.JsonNode;
 import ai.nextgpu.common.exception.ComponentException;
 import ai.nextgpu.common.model.BaseComponent;
@@ -14,7 +13,6 @@ import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 
 import java.util.*;
-import java.util.stream.Collectors;
 
 @Getter
 @Setter
@@ -24,6 +22,7 @@ import java.util.stream.Collectors;
 @NoArgsConstructor
 @AllArgsConstructor
 public class AnomalyReport extends BaseReport {
+
     @Id
     @GeneratedValue(strategy = GenerationType.SEQUENCE, generator = "anomaly_report_seq_gen")
     @SequenceGenerator(name = "anomaly_report_seq_gen", sequenceName = "anomaly_report_seq", allocationSize = 1)
@@ -35,20 +34,18 @@ public class AnomalyReport extends BaseReport {
     @Comment("The computer to generate the report for")
     private Computer computer;
 
+    @JdbcTypeCode(SqlTypes.JSON)
     @Convert(converter = AnomalyDetailListAttributeConverter.class)
-    @Column(name = "anomaly", length = 5000)
+    @Column(name = "anomaly")
     private List<AnomalyDetail> anomalyDetails;
 
     public void exportToHtml(String filename) {
-
     }
 
     public void exportToPdf(String filename) {
-
     }
 
     public void exportToText(String filename) {
-
     }
 
     public void addAnomaly(Collection<BaseComponent> components, ComponentException exception, String message) {

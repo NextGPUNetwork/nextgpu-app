@@ -81,20 +81,20 @@ fun ProviderSidebar(
         Spacer(modifier = Modifier.weight(1f)) // Pushes the rest to the bottom
 
         // --- BOTTOM ACTIONS ---
-        SidebarItem(
-            icon = "settings",
-            label = "Settings",
-            isCollapsed = isCollapsed,
-            isActive = false,
-            onClick = onSettings
-        )
-        SidebarItem(
-            icon = "help",
-            label = "Help",
-            isCollapsed = isCollapsed,
-            isActive = false,
-            onClick = onHelp
-        )
+//        SidebarItem(
+//            icon = "settings",
+//            label = "Settings",
+//            isCollapsed = isCollapsed,
+//            isActive = false,
+//            onClick = onSettings
+//        )
+//        SidebarItem(
+//            icon = "help",
+//            label = "Help",
+//            isCollapsed = isCollapsed,
+//            isActive = false,
+//            onClick = onHelp
+//        )
 
         // Toggle Pill Button (Matches mockup)
         CustomButton(

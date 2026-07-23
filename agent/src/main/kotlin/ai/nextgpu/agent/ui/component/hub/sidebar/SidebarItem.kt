@@ -33,15 +33,15 @@ fun SidebarItem(
     isActive: Boolean = false,
     onClick: (() -> Unit)? = null
 ) {
-    val hoverShape = RoundedCornerShape(RadiusSmall)
-    val startPadding = 8.dp
+    val hoverShape = RoundedCornerShape(RadiusRound)
+    val startPadding = 9.dp
 
     Surface(
         color = if (isActive) NextGpuTheme.colors.hoverBackground else Color.Transparent,
         shape = hoverShape,
         modifier = Modifier.Companion
             .fillMaxWidth()
-            .height(HeightListItem)
+            .height(HeightButtonCompact + 5.dp)
             .padding(vertical = SpacingMicro)
             .clip(hoverShape)
             .let { base ->
@@ -79,7 +79,7 @@ fun SidebarItem(
             )
 
             if (!isCollapsed) {
-                Spacer(modifier = Modifier.Companion.width(SpacingSmall))
+                Spacer(modifier = Modifier.Companion.width(SpacingSmall + 5.dp))
                 Text(
                     text = label,
                     style = MaterialTheme.typography.subtitle2,

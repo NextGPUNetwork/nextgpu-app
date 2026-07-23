@@ -21,7 +21,7 @@ object SettingsSchemaConfig {
             TabModel(
                 id = "general",
                 label = "General",
-                icon = "icons/settings.svg",
+                icon = "icons/screen.svg",
                 viewType = "standard",
                 subTabs = listOf(
                     SubTabModel(

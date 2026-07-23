@@ -69,4 +69,26 @@ public class StringUtilTest {
                 StringUtil.generateRandomString(length, false, false, false, false));
         assertEquals("chars length must be greater than 0", exception.getMessage(), "Exception message should match.");
     }
+
+    @Test
+    void testIsValidIPAddress_withValidIPv4Address() {
+        assertTrue(StringUtil.isValidIPAddress("172.21.180.25"));
+        assertTrue(StringUtil.isValidIPAddress("127.0.0.1"));
+    }
+
+    @Test
+    void testIsValidIPAddress_withValidIPv6Address() {
+        assertTrue(StringUtil.isValidIPAddress("2001:db8::1"));
+        assertTrue(StringUtil.isValidIPAddress("::1"));
+    }
+
+    @Test
+    void testIsValidIPAddress_withInvalidValues() {
+        assertFalse(StringUtil.isValidIPAddress(null));
+        assertFalse(StringUtil.isValidIPAddress(""));
+        assertFalse(StringUtil.isValidIPAddress("nextgpu"));
+        assertFalse(StringUtil.isValidIPAddress("example.com"));
+        assertFalse(StringUtil.isValidIPAddress("256.1.1.1"));
+        assertFalse(StringUtil.isValidIPAddress("There is no distribution with the supplied name.\nError code: Wsl/Service/WSL_E_DISTRO_NOT_FOUND"));
+    }
 }

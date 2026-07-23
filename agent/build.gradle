@@ -198,7 +198,7 @@ tasks.register("packageInnoSetup") {
         }
 
         // Run Inno Setup compiler
-        def isccFile = project.file("C:/Program Files (x86)/Inno Setup 6/ISCC.exe")
+        def isccFile = project.file("c:/Program Files/Inno Setup 7/ISCC.exe")
         if (!isccFile.exists()) {
             throw new GradleException("Inno Setup Compiler not found at ${isccFile.absolutePath}. Please ensure Inno Setup is installed.")
         }

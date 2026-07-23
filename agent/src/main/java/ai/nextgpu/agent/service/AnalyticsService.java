@@ -125,9 +125,13 @@ public class AnalyticsService {
      *                  additional event data or properties
      */
     public void captureEvent(String eventName, Map<String, Object> eventData) {
-        log.debug("Capturing event: {} with properties: {}", eventName, eventData);
-        Map<String, Object> event = Map.of(eventName, eventData);
-        storeEvent(event);
+        try {
+            log.debug("Capturing event: {} with properties: {}", eventName, eventData);
+            Map<String, Object> event = Map.of(eventName, eventData);
+            storeEvent(event);
+        } catch (Exception e) {
+            log.error("Failed to capture event: {}", eventName, e);
+        }
     }
 
 

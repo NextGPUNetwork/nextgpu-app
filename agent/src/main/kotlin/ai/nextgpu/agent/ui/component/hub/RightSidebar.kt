@@ -22,6 +22,13 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import ai.nextgpu.agent.model.ChatMessage
 import ai.nextgpu.agent.ui.theme.*
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.Icon
+import androidx.compose.material.ripple
+import androidx.compose.runtime.remember
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.res.painterResource
 
 @Composable
 fun RightSidebar(
@@ -31,6 +38,8 @@ fun RightSidebar(
     onUnpin: (Long) -> Unit,
     onMessageClick: (ChatMessage) -> Unit // NEW: Callback for navigation
 ) {
+    val sidebarInteraction = remember { MutableInteractionSource() }
+
     AnimatedVisibility(
         visible = isOpen,
         enter = expandHorizontally(expandFrom = Alignment.Start),
@@ -42,17 +51,6 @@ fun RightSidebar(
                 .width(RightSidebarWidth)
                 .fillMaxHeight()
                 .background(NextGpuTheme.colors.backgroundVariant)
-                .drawWithContent {
-                    drawContent()
-                    val strokeWidth = BorderWidth.toPx()
-                    val x = strokeWidth / 2
-                    drawLine(
-                        color = borderColor,
-                        start = Offset(x, 0f),
-                        end = Offset(x, size.height),
-                        strokeWidth = strokeWidth
-                    )
-                }
                 .padding(SpacingMedium)
         ) {
             // --- Header ---
@@ -65,17 +63,37 @@ fun RightSidebar(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "Context Panel",
+                    text = "Pinned Messages (${pinnedMessages.size}/10)",
                     style = MaterialTheme.typography.h6,
                     color = NextGpuTheme.colors.textPrimary,
                     fontWeight = FontWeight.Bold
                 )
 
-                ChatActionButton(
-                    icon = "sidebar-right",
-                    description = "Close Sidebar",
-                    onClick = onClose
-                )
+
+                Box(
+                    modifier = Modifier
+                        .size(IconSizeMedium + 2.dp) // Small, subtle circle matching your mockup
+                        .clip(CircleShape)
+                        .hoverable(sidebarInteraction)
+                        .background(
+                            color = NextGpuTheme.colors.hoverBackground,
+                            shape = CircleShape
+                        )
+                        .clickable(
+                            interactionSource = sidebarInteraction,
+                            indication = ripple(bounded = true),
+                            onClick = onClose
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        painter = painterResource("icons/arrow-right-no-line.svg"), // Replace with your arrow SVG
+                        contentDescription = "Toggle Sidebar",
+                        tint = NextGpuTheme.colors.textSecondary,
+                        modifier = Modifier
+                            .size(12.dp)
+                    )
+                }
             }
 
             // --- Content Area ---
@@ -101,14 +119,7 @@ fun RightSidebar(
                             .fillMaxSize()
                             .padding(end = SpacingSmall)
                     ) {
-                        item {
-                            Text(
-                                text = "Pinned Messages (${pinnedMessages.size}/10)",
-                                style = MaterialTheme.typography.subtitle2,
-                                color = NextGpuTheme.colors.textPrimary,
-                                modifier = Modifier.padding(bottom = SpacingSmall)
-                            )
-                        }
+
                         items(pinnedMessages) { message ->
                             RightSidebarPinnedItem(
                                 message = message,
@@ -129,8 +140,8 @@ fun RightSidebar(
                         thickness = 6.dp,
                         shape = RoundedCornerShape(RadiusSmall),
                         hoverDurationMillis = 0,
-                        unhoverColor = Secondary03LightGray,
-                        hoverColor = Secondary04DarkGray
+                        unhoverColor = NextGpuTheme.colors.background,
+                        hoverColor = NextGpuTheme.colors.hoverBackground,
                     )
                 )
             }
@@ -138,20 +149,21 @@ fun RightSidebar(
     }
 }
 
+
 @Composable
 private fun RightSidebarPinnedItem(
     message: ChatMessage,
     onUnpin: (Long) -> Unit,
-    onClick: () -> Unit // NEW: Click parameter
+    onClick: () -> Unit
 ) {
-
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(RadiusMedium))
             .background(NextGpuTheme.colors.background)
-            .clickable(onClick = onClick) // NEW: Make the card clickable
-            .padding(SpacingMedium)
+            .clickable(onClick = onClick)
+            .padding(SpacingMedium),
+        verticalArrangement = Arrangement.Top
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -161,7 +173,7 @@ private fun RightSidebarPinnedItem(
             Text(
                 text = message.role.replaceFirstChar { it.uppercase() },
                 style = MaterialTheme.typography.body2,
-                color =  NextGpuTheme.colors.textSecondary,
+                color = NextGpuTheme.colors.textSecondary,
                 fontWeight = FontWeight.Bold
             )
 
@@ -175,12 +187,49 @@ private fun RightSidebarPinnedItem(
 
         Spacer(modifier = Modifier.height(SpacingSmall))
 
-        Text(
-            text = message.content,
-            style = MaterialTheme.typography.body2,
-            color = NextGpuTheme.colors.textSecondary,
-            maxLines = 6,
-            overflow = TextOverflow.Ellipsis
+        // --- MARKDOWN PREVIEW WRAPPER ---
+
+        // 1. Create a "Mini" Typography scale just for this preview card
+        val miniTypography = MaterialTheme.typography.copy(
+            h1 = MaterialTheme.typography.subtitle1.copy(fontWeight = FontWeight.Bold),
+            h2 = MaterialTheme.typography.subtitle2.copy(fontWeight = FontWeight.Bold),
+            h3 = MaterialTheme.typography.body1.copy(fontWeight = FontWeight.Bold),
+            body1 = MaterialTheme.typography.caption,
+            body2 = MaterialTheme.typography.caption
         )
+
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(max = 100.dp) // Constrain the absolute maximum height of the markdown
+                // 2. The Fading Edge Magic
+                .graphicsLayer { alpha = 0.99f } // Required to create an offscreen buffer for the blend mode
+                .drawWithContent {
+                    drawContent()
+                    drawRect(
+                        brush = androidx.compose.ui.graphics.Brush.verticalGradient(
+                            0.6f to androidx.compose.ui.graphics.Color.Black, // Solid until 60% down
+                            1.0f to androidx.compose.ui.graphics.Color.Transparent // Fades to transparent at the bottom
+                        ),
+                        blendMode = androidx.compose.ui.graphics.BlendMode.DstIn
+                    )
+                }
+        ) {
+            // Apply the scaled-down text sizes locally
+            MaterialTheme(typography = miniTypography) {
+                ResponseHandler(
+                    content = message.content.trim(), // Keep the trim!
+                    textColor = NextGpuTheme.colors.textSecondary
+                )
+            }
+
+            // 3. Click Absorber Overlay
+            // This prevents Markdown links or code blocks from stealing the click from the card
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .background(androidx.compose.ui.graphics.Color.Transparent)
+            )
+        }
     }
 }

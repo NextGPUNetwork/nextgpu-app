@@ -121,7 +121,7 @@ fun ResponseHandler(
                             content = block.content,
                             colors = markdownColor(
                                 codeBackground = NextGpuTheme.colors.backgroundVariant,
-                                inlineCodeBackground = NextGpuTheme.colors.backgroundVariant,
+//                                inlineCodeBackground = NextGpuTheme.colors.primaryVariant.copy(alpha = 0.3f),
                                 dividerColor = NextGpuTheme.colors.border,
                                 text = textColor
                             ),
@@ -226,6 +226,7 @@ fun ResponseHandler(
                                 ),
                                 inlineCode = MaterialTheme.typography.body2.copy(
                                     color = Primary02Purple,
+                                    background = NextGpuTheme.colors.primaryVariant.copy(alpha = 0.3f),
                                     fontFamily = JetBrainsMono,
                                     fontWeight = FontWeight.Medium
                                 ),
@@ -830,7 +831,7 @@ private fun AnnotatedString.Builder.buildInlineMarkdown(
             MarkdownElementTypes.CODE_SPAN -> {
                 // Explicitly merge the typography with the background and purple color
                 val codeStyle = typography.inlineCode.toSpanStyle().copy(
-                    background = Secondary03LightGray,
+                    background = Primary02Purple.copy(alpha = 0.1f),
                     color = Primary02Purple
                 )
                 withStyle(codeStyle) {

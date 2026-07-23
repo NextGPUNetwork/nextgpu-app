@@ -1,5 +1,9 @@
-<?xml version="1.0" encoding="utf-8"?><!-- Uploaded to: SVG Repo, www.svgrepo.com, Generator: SVG Repo Mixer Tools -->
-<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-<path d="M8 14C8 14.5523 8.44771 15 9 15H15C15.5523 15 16 14.5523 16 14C16 13.4477 15.5523 13 15 13H9C8.44771 13 8 13.4477 8 14Z" fill="#0F0F0F"/>
-<path fill-rule="evenodd" clip-rule="evenodd" d="M4 1C2.34315 1 1 2.34315 1 4V20C1 21.6569 2.34315 23 4 23H20C21.6569 23 23 21.6569 23 20V8C23 6.34315 21.6569 5 20 5H12.2361C11.8573 5 11.511 4.786 11.3416 4.44721L10.4472 2.65836C9.93904 1.64201 8.90025 1 7.76393 1H4ZM3 4C3 3.44772 3.44772 3 4 3H7.76393C8.1427 3 8.48897 3.214 8.65836 3.55279L9.55279 5.34164C10.061 6.35799 11.0998 7 12.2361 7H20C20.5523 7 21 7.44772 21 8V20C21 20.5523 20.5523 21 20 21H4C3.44772 21 3 20.5523 3 20V4Z" fill="#0F0F0F"/>
+<svg viewBox="-1 -1 32 32" xmlns="http://www.w3.org/2000/svg" id="Folder-Subtract--Streamline-Ultimate" height="32" width="32">
+    <desc>
+        Folder Subtract Streamline Icon: https://streamlinehq.com
+    </desc>
+    <path d="m10.3125 23.4375 -7.25375 0" fill="none" stroke="#000000" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path>
+    <path d="M25.3125 10.3125v-3.75a1.875 1.875 0 0 0 -1.875 -1.875H10.3125v-1.875a1.875 1.875 0 0 0 -1.875 -1.875h-5.625a1.875 1.875 0 0 0 -1.875 1.875v18.5a2.125 2.125 0 0 0 4.17 0.5475l2.9387499999999998 -10.192499999999999A1.875 1.875 0 0 1 9.848749999999999 10.3125H27.1875a1.875 1.875 0 0 1 1.8125 2.3575" fill="none" stroke="#000000" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path>
+    <path d="M14.0625 21.5625a7.5 7.5 0 1 0 15 0 7.5 7.5 0 1 0 -15 0Z" fill="none" stroke="#000000" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path>
+    <path d="m17.8125 21.5625 7.5 0" fill="none" stroke="#000000" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path>
 </svg>

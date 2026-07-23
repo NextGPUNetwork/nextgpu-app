@@ -30,6 +30,7 @@ import ai.nextgpu.agent.model.PromptModel
 import ai.nextgpu.agent.ui.AppPortal
 import ai.nextgpu.agent.ui.component.CustomButton
 import ai.nextgpu.agent.ui.theme.*
+import androidx.compose.ui.text.style.TextOverflow
 
 @Composable
 fun TopNavigation(
@@ -57,6 +58,7 @@ fun TopNavigation(
     hasPinnedMessages: Boolean,
     onToggleRightSidebar: () -> Unit,
     isRightSidebarOpen: Boolean,
+    onSettings: (tabId: String) -> Unit,
 ) {
     var showModelChangeWarning by remember { mutableStateOf(false) }
     var pendingModelSelection by remember { mutableStateOf<String?>(null) }
@@ -90,10 +92,11 @@ fun TopNavigation(
 
             Row(
                 modifier = Modifier
+                    .width(140.dp)
                     .clip(RoundedCornerShape(RadiusRound))
                     .background(if (isSelectorClickable && isHovered) NextGpuTheme.colors.hoverBackground else NextGpuTheme.colors.backgroundVariant)
                     .clickable(
-                        enabled = isSelectorClickable, // Use our new logic here
+                        enabled = isSelectorClickable,
                         interactionSource = interactionSource,
                         indication = ripple(bounded = true)
                     ) { onModelMenuOpenChange(!modelMenuOpen) }
@@ -101,22 +104,36 @@ fun TopNavigation(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = displayText, // Use our dynamic text here
+                    text = displayText,
                     color = if (!isSelectorClickable) NextGpuTheme.colors.textSecondary else NextGpuTheme.colors.textPrimary,
-                    style = MaterialTheme.typography.subtitle2.copy(fontWeight = FontWeight.Medium)
+                    style = MaterialTheme.typography.subtitle2.copy(fontWeight = FontWeight.Medium),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f) // Takes up the remaining space inside the 250dp box
                 )
 
                 Spacer(modifier = Modifier.width(SpacingSmall))
 
-                Icon(
-                    painter = painterResource("icons/arrow-down.svg"),
-                    contentDescription = null,
-                    modifier = Modifier
-                        .size(14.dp)
-                        .rotate(rotation),
-                    tint = if (!isSelectorClickable) Color.Transparent else NextGpuTheme.colors.textSecondary
-                )
+                if (isSelectorClickable) {
+                    Icon(
+                        painter = painterResource("icons/arrow-down.svg"),
+                        contentDescription = "Expand menu",
+                        modifier = Modifier
+                            .size(14.dp)
+                            .rotate(rotation),
+                        tint = NextGpuTheme.colors.textSecondary
+                    )
+                } else {
+                    Icon(
+                        painter = painterResource("icons/lock.svg"),
+                        contentDescription = "Menu locked",
+                        modifier = Modifier.size(14.dp),
+                        tint = NextGpuTheme.colors.textSecondary
+                    )
+                }
             }
+
+
 
             MaterialTheme(shapes = MaterialTheme.shapes.copy(medium = RoundedCornerShape(RadiusMedium))) {
                 DropdownMenu(
@@ -126,16 +143,25 @@ fun TopNavigation(
                         .background(NextGpuTheme.colors.background)
                         .border(BorderWidth, NextGpuTheme.colors.border, RoundedCornerShape(RadiusMedium))
                 ) {
-                    Column(modifier = Modifier.padding(SpacingSmall)) {
+                    Column(modifier = Modifier.padding(horizontal = SpacingSmall)) {
 
-                        // Handle Empty State gracefully
-                        if (isImageMode && modelOptions.isEmpty()) {
+                        // Handle Empty State gracefully for ALL model types
+                        if (modelOptions.isEmpty()) {
                             DropdownMenuItem(
-                                onClick = { onModelMenuOpenChange(false) },
+                                onClick = {
+                                    onModelMenuOpenChange(false)
+                                    onSettings("models") // <--- Triggers navigation or opens the settings tab
+                                },
                                 contentPadding = PaddingValues(horizontal = RadiusMedium)
                             ) {
+                                val emptyText = if (isImageMode) {
+                                    "Please download an image model from Settings"
+                                } else {
+                                    "Please download a model from Settings"
+                                }
+
                                 Text(
-                                    text = "Please download an image model from Settings",
+                                    text = emptyText,
                                     style = MaterialTheme.typography.body2,
                                     color = NextGpuTheme.colors.textSecondary
                                 )
@@ -353,31 +379,31 @@ fun TopNavigation(
                 val privateInteractionSource = remember { MutableInteractionSource() }
                 val isPrivateHovered by privateInteractionSource.collectIsHoveredAsState()
 
-                Box(
-                    modifier = Modifier
-                        .size(IconSizeLarge)
-                        .clip(CircleShape)
-                        .hoverable(privateInteractionSource)
-                        .background(
-                            color = if (isPrivateMode) NextGpuTheme.colors.textSecondary
-                            else if (isPrivateHovered) NextGpuTheme.colors.hoverBackground
-                            else NextGpuTheme.colors.backgroundVariant,
-                            shape = CircleShape
-                        )
-                        .clickable(
-                            interactionSource = privateInteractionSource,
-                            indication = ripple(bounded = true)
-                        ) { onPrivateModeChange(!isPrivateMode) },
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        painter = painterResource( "icons/incognito-profile.svg"),
-                        contentDescription = "Toggle Private Mode",
-                        modifier = Modifier.size(IconSizeMedium),
-                        // If active, invert the color to match the background, just like the pin button
-                        tint = if (isPrivateMode) NextGpuTheme.colors.background else NextGpuTheme.colors.textSecondary,
-                    )
-                }
+//                Box(
+//                    modifier = Modifier
+//                        .size(IconSizeLarge)
+//                        .clip(CircleShape)
+//                        .hoverable(privateInteractionSource)
+//                        .background(
+//                            color = if (isPrivateMode) NextGpuTheme.colors.textSecondary
+//                            else if (isPrivateHovered) NextGpuTheme.colors.hoverBackground
+//                            else NextGpuTheme.colors.backgroundVariant,
+//                            shape = CircleShape
+//                        )
+//                        .clickable(
+//                            interactionSource = privateInteractionSource,
+//                            indication = ripple(bounded = true)
+//                        ) { onPrivateModeChange(!isPrivateMode) },
+//                    contentAlignment = Alignment.Center
+//                ) {
+//                    Icon(
+//                        painter = painterResource( "icons/incognito-profile.svg"),
+//                        contentDescription = "Toggle Private Mode",
+//                        modifier = Modifier.size(IconSizeMedium),
+//                        // If active, invert the color to match the background, just like the pin button
+//                        tint = if (isPrivateMode) NextGpuTheme.colors.background else NextGpuTheme.colors.textSecondary,
+//                    )
+//                }
 
 //                if (!isPrivateMode) {
 //                    MaterialTheme(shapes = MaterialTheme.shapes.copy(medium = RoundedCornerShape(RadiusMedium))) {

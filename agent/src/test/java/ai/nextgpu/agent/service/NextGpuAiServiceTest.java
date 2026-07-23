@@ -36,6 +36,7 @@ import java.util.function.Consumer;
 import java.util.function.Supplier;
 
 import ai.nextgpu.agent.util.OSUtil;
+import ai.nextgpu.agent.util.OllamaUtil;
 import ai.nextgpu.common.model.ComfyUiModelFile;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -80,13 +81,18 @@ class NextGpuAiServiceTest {
         historyLimitProp.setName(GlobalPropertyConfig.TOKEN_HISTORY_LIMIT);
         historyLimitProp.setDatatype("java.lang.Integer");
         historyLimitProp.setValueReference("4096");
-        when(globalPropertyRepository.findByName(GlobalPropertyConfig.TOKEN_HISTORY_LIMIT))
+        lenient().when(globalPropertyRepository.findByName(GlobalPropertyConfig.TOKEN_HISTORY_LIMIT))
                 .thenReturn(Optional.of(historyLimitProp));
+        lenient().when(globalPropertyRepository.findByName(GlobalPropertyConfig.LOCAL_IP))
+                .thenReturn(Optional.empty());
+        lenient().when(globalPropertyRepository.findByName(GlobalPropertyConfig.MAX_PINNED_MESSAGES))
+                .thenReturn(Optional.empty());
 
+        OllamaUtil ollamaUtil = new OllamaUtil(globalPropertyRepository, OLLAMA_URL);
         nextGpuAiService = new NextGpuAiService(
                 nextGpuWebService,
+                ollamaUtil,
                 "/tmp/comfy",
-                OLLAMA_URL,
                 globalPropertyRepository,
                 chatMessageRepository,
                 chatSessionRepository,

@@ -43,9 +43,14 @@ import ai.nextgpu.agent.ui.theme.RadiusMedium
 import ai.nextgpu.agent.ui.theme.SpacingMedium
 import ai.nextgpu.agent.ui.theme.SpacingSmall
 import ai.nextgpu.agent.ui.theme.ElevationMicro
+import ai.nextgpu.agent.ui.theme.IconSizeLarge
+import ai.nextgpu.agent.ui.theme.IconSizeMedium
 import ai.nextgpu.agent.ui.theme.IconSizeSmall
+import ai.nextgpu.agent.ui.theme.SpacingLarge
+import ai.nextgpu.agent.ui.theme.WarnText
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.ui.draw.alpha
 
 @Composable
 fun AvailableModelItem(
@@ -67,6 +72,7 @@ fun AvailableModelItem(
     val isHovered by interactionSource.collectIsHoveredAsState()
 
     val dynamicBackgroundColor = when {
+        isDownloading -> NextGpuTheme.colors.backgroundVariant.copy(0.2f)
         isActive -> NextGpuTheme.colors.backgroundVariant
         isHovered -> NextGpuTheme.colors.hoverBackground
         else -> Color.Transparent
@@ -89,7 +95,7 @@ fun AvailableModelItem(
             ) { onToggleExpand() },
         shape = itemShape,
         backgroundColor = dynamicBackgroundColor,
-        border = if (isActive) BorderStroke(ElevationMicro, NextGpuTheme.colors.border) else null,
+//        border = if (isActive) BorderStroke(ElevationMicro, NextGpuTheme.colors.border) else null,
         elevation = 0.dp
     ) {
         Column(modifier = Modifier.padding(SpacingMedium)) {
@@ -132,9 +138,11 @@ fun AvailableModelItem(
                                     icon = painterResource("icons/pause.svg"),
                                     iconPosition = IconPosition.Start,
                                     onClick = onPauseDownload,
-                                    backgroundColor = NextGpuTheme.colors.surface,
+                                    backgroundColor = Color.Transparent,
                                     textColor = NextGpuTheme.colors.textPrimary,
                                     borderColor = NextGpuTheme.colors.border,
+                                    hoverBackgroundColor = WarnText.copy(0.1f),
+                                    hoverTextColor = WarnText,
                                     elevation = false,
                                     contentPadding = PaddingValues(horizontal = SpacingMedium, vertical = 6.dp)
                                 )
@@ -145,6 +153,8 @@ fun AvailableModelItem(
                                     iconPosition = IconPosition.Start,
                                     onClick = onResumeDownload,
                                     backgroundColor = NextGpuTheme.colors.primaryVariant.copy(alpha = 0.1f),
+                                    hoverBackgroundColor =  NextGpuTheme.colors.primaryVariant.copy(alpha = 0.15f),
+                                    hoverTextColor = NextGpuTheme.colors.primaryVariant.copy(alpha = 0.85f),
                                     textColor = NextGpuTheme.colors.primaryVariant,
                                     elevation = false,
                                     contentPadding = PaddingValues(horizontal = SpacingMedium, vertical = 6.dp)
@@ -164,17 +174,21 @@ fun AvailableModelItem(
                                 hoverBackgroundColor = NextGpuTheme.colors.error.copy(alpha = 0.1f),
                                 hoverTextColor = NextGpuTheme.colors.error,
                                 elevation = false,
-                                contentPadding = PaddingValues(horizontal = SpacingMedium, vertical = 6.dp)
+                                contentPadding = PaddingValues(horizontal = SpacingLarge, vertical = 6.dp)
                             )
                         }
 
                         else -> {
-                            IconButton(onClick = onDownload) {
+                            // 👇 Only render the download button if the item is hovered or expanded
+                            IconButton(
+                                onClick = onDownload,
+                                modifier = Modifier.alpha(if (isHovered || isExpanded) 1f else 0f)
+                            ) {
                                 Icon(
                                     painter = painterResource("icons/download.svg"),
                                     contentDescription = "Download Model",
-                                    tint = NextGpuTheme.colors.primaryVariant,
-                                    modifier = Modifier.size(IconSizeSmall)
+                                    tint = NextGpuTheme.colors.textSecondary,
+                                    modifier = Modifier.size(IconSizeMedium)
                                 )
                             }
                         }

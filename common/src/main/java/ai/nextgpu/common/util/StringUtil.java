@@ -9,6 +9,7 @@ import org.springframework.boot.configurationprocessor.json.JSONObject;
 import org.springframework.stereotype.Component;
 
 import java.math.BigInteger;
+import java.net.InetAddress;
 import java.util.Base64;
 import java.util.HashMap;
 import java.util.Map;
@@ -160,6 +161,66 @@ public class StringUtil {
         try {
             new JSONObject(json);
             return true;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    /**
+     * Validates whether the provided string is an IPv4 or IPv6 address literal.
+     *
+     * @param ipAddress the string to validate
+     * @return true if the string is a valid IP address literal, false otherwise
+     */
+    public static boolean isValidIPAddress(String ipAddress) {
+        if (ipAddress == null || ipAddress.isBlank()) {
+            return false;
+        }
+        String trimmed = ipAddress.trim();
+        if (!trimmed.equals(ipAddress)) {
+            return false;
+        }
+        if (trimmed.contains(".")) {
+            return isValidIPv4Address(trimmed);
+        }
+        if (trimmed.contains(":")) {
+            return isValidIPv6Address(trimmed);
+        }
+        return false;
+    }
+
+    private static boolean isValidIPv4Address(String ipAddress) {
+        int parts = 0;
+        int partValue = 0;
+        int partLength = 0;
+
+        for (int i = 0; i < ipAddress.length(); i++) {
+            char c = ipAddress.charAt(i);
+            if (c == '.') {
+                if (partLength == 0 || partValue > 255) {
+                    return false;
+                }
+                parts++;
+                partValue = 0;
+                partLength = 0;
+                continue;
+            }
+            if (!Character.isDigit(c)) {
+                return false;
+            }
+            partValue = (partValue * 10) + Character.digit(c, 10);
+            partLength++;
+            if (partLength > 3 || partValue > 255) {
+                return false;
+            }
+        }
+        return parts == 3 && partLength > 0 && partValue <= 255;
+    }
+
+    private static boolean isValidIPv6Address(String ipAddress) {
+        try {
+            InetAddress address = InetAddress.getByName(ipAddress);
+            return address instanceof java.net.Inet6Address;
         } catch (Exception e) {
             return false;
         }

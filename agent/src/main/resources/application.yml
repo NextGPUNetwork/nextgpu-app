@@ -1,7 +1,7 @@
 spring:
   application:
     name: NextGPU Agent
-    version: 0.2.0
+    version: 0.2.6
   main:
     lazy-initialization: true
   datasource:
@@ -38,7 +38,7 @@ logging:
 
 nextgpu:
   setup:
-    required-version: 2
+    required-version: 0
   agent:
     threadPoolSize: 5
     analytics:
@@ -49,14 +49,14 @@ nextgpu:
     socketUrl: wss://api-staging.nextgpu.ai/ws # wss://api-staging.nextgpu.ai/ws #
 
 ollama:
-  host: ${OLLAMA_HOST:localhost}
-  port: ${OLLAMA_PORT:11434}
+  host: localhost
+  port: 11434
   api:
     url: http://${ollama.host}:${ollama.port}
 
 comfy:
-  host: ${COMFY_HOST:localhost}
-  port: ${COMFY_PORT:8188}
+  host: localhost
+  port: 8188
   api:
     url: http://${comfy.host}:${comfy.port}
   basedir: /opt/nextgpu/comfy/basedir

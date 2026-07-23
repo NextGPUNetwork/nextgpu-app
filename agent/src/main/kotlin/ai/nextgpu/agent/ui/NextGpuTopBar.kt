@@ -1,6 +1,7 @@
 package ai.nextgpu.agent.ui
 
 import ai.nextgpu.agent.ui.component.CustomButton
+import ai.nextgpu.agent.ui.theme.BorderWidth
 import ai.nextgpu.agent.ui.theme.HeightButtonCompact
 import ai.nextgpu.agent.ui.theme.HeightTopBar
 import ai.nextgpu.agent.ui.theme.IconSizeLarge
@@ -10,9 +11,11 @@ import ai.nextgpu.agent.ui.theme.IconSizeSmall
 import ai.nextgpu.agent.ui.theme.NextGpuTheme
 import ai.nextgpu.agent.ui.theme.Primary01White
 import ai.nextgpu.agent.ui.theme.RadiusRound
+import ai.nextgpu.agent.ui.theme.RadiusSmall
 import ai.nextgpu.agent.ui.theme.SidebarWidth
 import ai.nextgpu.agent.ui.theme.SpacingLarge
 import ai.nextgpu.agent.ui.theme.SpacingMedium
+import ai.nextgpu.agent.ui.theme.SpacingTiny
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -57,7 +60,15 @@ import androidx.compose.material.MaterialTheme
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.TextUnitType
+import androidx.compose.foundation.TooltipArea
+import androidx.compose.foundation.TooltipPlacement
+import androidx.compose.ui.unit.DpOffset
+import androidx.compose.ui.unit.dp
+import androidx.compose.material.Surface
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.ExperimentalFoundationApi
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun NextGpuTopBar(
     isSidebarVisible: Boolean,
@@ -68,7 +79,10 @@ fun NextGpuTopBar(
     onUpdateClick: () -> Unit,
     onProfileClick: () -> Unit,
     windowState: WindowState,
-    onClose: () -> Unit
+    onClose: () -> Unit,
+    isPrivateMode: Boolean,
+    onPrivateModeChange: (Boolean) -> Unit,
+    isProviderView: Boolean,
 ) {
     // TopBar Profile States
     val profileInteraction = remember { MutableInteractionSource() }
@@ -180,6 +194,63 @@ fun NextGpuTopBar(
 //                    )
 //                }
 //            }
+
+            val privateInteractionSource = remember { MutableInteractionSource() }
+            val isPrivateHovered by privateInteractionSource.collectIsHoveredAsState()
+            if (!isProviderView) {
+                TooltipArea(
+                    tooltip = {
+                        // This is the actual UI of the tooltip bubble
+                        Surface(
+                            shape = RoundedCornerShape(RadiusSmall),
+                            color = NextGpuTheme.colors.surface,
+                            elevation = 4.dp,
+                            border = BorderStroke(BorderWidth, NextGpuTheme.colors.border)
+                        ) {
+                            Text(
+                                text = if (isPrivateMode) "Disable Private Mode" else "Enable Private Mode",
+                                style = MaterialTheme.typography.caption,
+                                color = NextGpuTheme.colors.textPrimary,
+                                modifier = Modifier.padding(horizontal = SpacingMedium, vertical = SpacingTiny)
+                            )
+                        }
+                    },
+                    delayMillis = 500, // Standard 0.5s delay before showing
+
+                    // CHANGED: Use ComponentRect to anchor to the button's layout bounds
+                    tooltipPlacement = TooltipPlacement.ComponentRect(
+                        anchor = Alignment.BottomCenter,   // Anchor to the bottom center of the Box
+                        alignment = Alignment.TopCenter,   // Align the top center of the tooltip to that anchor
+                        offset = DpOffset(0.dp, 24.dp)      // Adds a nice 8dp gap between the button and the tooltip
+                    )
+                ) {
+                    // Your original Box goes perfectly inside here
+                    Box(
+                        modifier = Modifier
+                            .size(IconSizeLarge)
+                            .clip(CircleShape)
+                            .hoverable(privateInteractionSource)
+                            .background(
+                                color = if (isPrivateMode) NextGpuTheme.colors.textSecondary
+                                else if (isPrivateHovered) NextGpuTheme.colors.hoverBackground
+                                else NextGpuTheme.colors.backgroundVariant,
+                                shape = CircleShape
+                            )
+                            .clickable(
+                                interactionSource = privateInteractionSource,
+                                indication = ripple(bounded = true)
+                            ) { onPrivateModeChange(!isPrivateMode) },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            painter = painterResource("icons/incognito-profile.svg"),
+                            contentDescription = "Toggle Private Mode",
+                            modifier = Modifier.size(IconSizeMedium),
+                            tint = if (isPrivateMode) NextGpuTheme.colors.background else NextGpuTheme.colors.textSecondary,
+                        )
+                    }
+                }
+            }
 
 
 

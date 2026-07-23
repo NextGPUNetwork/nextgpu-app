@@ -2,6 +2,7 @@ package ai.nextgpu.agent.ui.component.hub.sidebar
 
 // Compose UI and Foundation
 import ai.nextgpu.agent.ui.theme.ElevationNone
+import ai.nextgpu.agent.ui.theme.HeightButtonCompact
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -34,6 +35,7 @@ import ai.nextgpu.agent.ui.theme.SpacingMicro
 import ai.nextgpu.agent.ui.theme.SpacingSmall
 import ai.nextgpu.agent.ui.theme.HeightListItem
 import ai.nextgpu.agent.ui.theme.IconSizeSidebar
+import ai.nextgpu.agent.ui.theme.RadiusRound
 import androidx.compose.material.Surface
 
 @Composable
@@ -49,8 +51,8 @@ fun CustomSidebarItem(
     rippleColor: Color = Color.Unspecified,
     trailingContent: @Composable (RowScope.() -> Unit)? = null // Optional trailing icons/badges
 ) {
-    val hoverShape = RoundedCornerShape(RadiusSmall)
-    val startPadding = RadiusSmall
+    val hoverShape = RoundedCornerShape(RadiusRound)
+    val startPadding = 9.dp
 
     // Manual hover tracking for custom coloring
     val interaction = remember { MutableInteractionSource() }
@@ -61,7 +63,7 @@ fun CustomSidebarItem(
         shape = hoverShape,
         modifier = Modifier
             .fillMaxWidth()
-            .height(HeightListItem)
+            .height(HeightButtonCompact + 5.dp)
             .padding(vertical = SpacingMicro)
             .clip(hoverShape)
             .hoverable(interaction)
@@ -93,7 +95,7 @@ fun CustomSidebarItem(
             )
 
             if (!isCollapsed) {
-                Spacer(modifier = Modifier.width(SpacingSmall))
+                Spacer(modifier = Modifier.Companion.width(SpacingSmall + 5.dp))
                 Text(
                     text = label,
                     style = MaterialTheme.typography.subtitle2,

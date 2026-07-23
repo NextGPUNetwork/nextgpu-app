@@ -25,7 +25,7 @@ wsl -d nextgpu -- bash -c "echo 'nextgpu ALL=(ALL) NOPASSWD:ALL' | sudo tee /etc
 # It handles the installation of CUDA, Ollama, and ComfyUI
 
 # Install CUDA toolkit
-sudo apt update && sudo apt install -y build-essential gnupg ca-certificates wget
+sudo apt update && sudo apt install -y build-essential gnupg ca-certificates wget sysbench util-linux fio net-tools
 wget -q https://developer.download.nvidia.com/compute/cuda/repos/wsl-ubuntu/x86_64/cuda-wsl-ubuntu.pin
 sudo mv cuda-wsl-ubuntu.pin /etc/apt/preferences.d/cuda-repository-pin-600
 wget -q https://developer.download.nvidia.com/compute/cuda/12.6.3/local_installers/cuda-repo-wsl-ubuntu-12-6-local_12.6.3-1_amd64.deb
@@ -91,19 +91,19 @@ EOF
 sudo systemctl daemon-reload && sudo systemctl enable comfyui && sudo systemctl restart comfyui
 
 # Install stt tool
-sudo mkdir -p /opt/nextgpu/stt-tool /opt/nextgpu/stt-tool/models/small
+MODEL_DIR=/opt/nextgpu/stt-tool/models/small
+sudo mkdir -p /opt/nextgpu/stt-tool /opt/nextgpu/stt-tool/models "$MODEL_DIR"
 sudo chown -R nextgpu:nextgpu /opt/nextgpu/stt-tool
 
-if [ ! -d /opt/nextgpu/stt-tool/.git ]; then
-    git clone https://github.com/NextGPUNetwork/nextgpu-stt-tool /opt/nextgpu/stt-tool
+if [ ! -f /opt/nextgpu/stt-tool/requirements.txt ]; then
+    if [ -d /tmp/stt-tool ]; then
+      sudo rm -R /tmp/stt-tool
+    fi
+  git clone https://github.com/NextGPUNetwork/nextgpu-stt-tool /tmp/stt-tool
+  sudo cp -rT /tmp/stt-tool /opt/nextgpu/stt-tool
+  sudo chown -R nextgpu:nextgpu /opt/nextgpu/stt-tool
+  rm -rf /tmp/stt-tool
 fi
-
-Use this updated version. It checks for the final file first; if it already exists, it skips that URL and moves to the next one:
-
-sudo sh -c '
-set -e
-MODEL_DIR=/opt/nextgpu/stt-tool/models/small
-mkdir -p "$MODEL_DIR"
 
 for url in \
   https://huggingface.co/Systran/faster-whisper-small/resolve/main/model.bin \
@@ -119,17 +119,16 @@ do
     echo "Skipping $filename; already downloaded."
     continue
   fi
-
-  wget -O "$part" "$url"
+  wget --tries=3 --show-progress -O "$part" "$url"
   mv -f "$part" "$target"
 done
-'
 
 
 cd /opt/nextgpu/stt-tool
 
 python3 -m venv .venv
 source .venv/bin/activate
+python -m pip install --upgrade pip setuptools wheel
 python -m pip install -r requirements.txt
 
 #### Service to run the stt tool

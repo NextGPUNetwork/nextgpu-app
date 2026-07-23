@@ -90,7 +90,6 @@ public class NextGpuAgentService {
 
     /**
      * Verifies if WSL is running.
-     * @return true if the environment is ready, false otherwise.
      */
     public void checkEnvironment() {
         if (OSUtil.IS_WINDOWS) {
@@ -110,8 +109,12 @@ public class NextGpuAgentService {
                 String username = usernameProperty.getValueReference();
                 if (distro != null && username != null) {
                     String wslIp = OSUtil.getLocalIpAddress(distro, username);
-                    localIpProperty.setValueReference(wslIp);
-                    saveGlobalProperty(localIpProperty);
+                    if (wslIp != null && !wslIp.isBlank()) {
+                        localIpProperty.setValueReference(wslIp);
+                        saveGlobalProperty(localIpProperty);
+                    } else {
+                        log.warn("Keeping existing WSL_IP value because local IP lookup failed for distro '{}'.", distro);
+                    }
                 }
             }
         }
@@ -453,30 +456,6 @@ public class NextGpuAgentService {
         return computerService.generateComputerBenchmarkReport(loginWalletProperty.getValueReference(), quick);
     }
 
-    /**
-     * Saves a benchmark report by converting it into a data transfer object (DTO) and sending it to the
-     * web service. If the user is not logged in or an error occurs during the process, a runtime
-     * exception is thrown.
-     *
-     * @param report the {@code BenchmarkReport} object containing the benchmark data to be saved.
-     *               This includes various benchmark results (memory, CPU, GPU, storage, network)
-     *               along with metadata like elapsed time, date created, provider's wallet address,
-     *               and associated computer UUID.
-     * @throws RuntimeException if an error occurs during the saving process.
-     */
-    public void saveBenchmarkReport(BenchmarkReport report) throws RuntimeException {
-        try {
-            if (hasValidJwt()){
-                nextGpuWebService.saveBenchmarkReport(BenchmarkReportDto.toDto(report));
-            } else {
-                String errorMessage = "Cannot save Benchmark report. User is not logged-in.";
-                log.error("Cannot save Benchmark report. User is not logged-in.");
-                throw new RuntimeException(errorMessage);
-            }
-        } catch (Exception e) {
-            throw new RuntimeException(e);
-        }
-    }
 
     public Map<String, Object> generateComputerUsageReport() {
         return computerService.generateComputerUsageReport();
@@ -487,6 +466,8 @@ public class NextGpuAgentService {
         log.info("Applying as a Provider");
         try {
             if(hasValidJwt()){
+                GlobalProperty loginWalletProperty = globalPropertyRepository.findByName(GlobalPropertyConfig.LOGIN_WALLET).get();
+                String loginWallet = loginWalletProperty.getValueReference();
                 log.info("User is logged in");
                 log.info("Detecting hardware");
 
@@ -495,15 +476,16 @@ public class NextGpuAgentService {
 
                 log.info("Detected hardware.");
 
-                computer = this.saveDetectedHardware(computer);
+                computer = computerService.saveComputer(computer, loginWallet);
                 log.info("Computer saved successfully: {}", computer.getUuid());
 
-                workflowStatus.accept("Generating hardware benchmark report");
                 // Generate a full benchmark report, not a quick one
+                workflowStatus.accept("Generating hardware benchmark report");
                 BenchmarkReport benchmarkReport= this.generateComputerBenchmarkReport(true);
                 benchmarkReport.setComputer(computer);
                 log.info("Benchmark report generated successfully.");
-                this.saveBenchmarkReport(benchmarkReport);
+
+                nextGpuWebService.saveBenchmarkReport(BenchmarkReportDto.toDto(benchmarkReport));
                 log.info("Benchmark report saved successfully: {}", benchmarkReport.getUuid());
 
                 workflowStatus.accept("Auditing computer for anomalies");
@@ -521,23 +503,14 @@ public class NextGpuAgentService {
                 throw new RuntimeException(errorMessage);
             }
         } catch (Exception e) {
-            throw new RuntimeException(e);
+             throw new RuntimeException(e);
         }
     }
 
-    /**
-     * Saves the detected computer hardware information after verifying the user's login status.
-     * If the user is logged in, the method persists the computer details, updates a global property,
-     * and initializes a WebSocket client for communication. If any step fails, appropriate exceptions
-     * are thrown to indicate the failure.
-     *
-     * @param detectedHardware the {@code Computer} object containing the detected hardware details
-     *                         to be saved.
-     * @return the saved {@code Computer} object after successful persistence.
-     * @throws RuntimeException if the user is not logged in, or if initializing the WebSocket client fails.
-     */
-    @Transactional
-    public Computer saveDetectedHardware(Computer detectedHardware) throws RuntimeException {
+
+    // TODO: Remove this method after refactoring when working on WebSocket
+    @Deprecated
+    public Computer saveDetectedHardware(Computer detectedHardware) throws Exception {
         if(hasValidJwt()) {
             GlobalProperty loginWalletProperty = getGlobalProperty(GlobalPropertyConfig.LOGIN_WALLET);
 
@@ -692,15 +665,21 @@ public class NextGpuAgentService {
     @Transactional
     public boolean checkAndSaveNvidiaGpuPresence() {
         log.info("Checking for NVIDIA GPU presence...");
-        Computer computer = detectHardware();
+
+        Set<Gpu> gpus = hardwareUtil.detectGpus();
 
         boolean hasNvidia = false;
-        if (computer != null && computer.getGpus() != null) {
-            hasNvidia = computer.getGpus().stream()
-                    .anyMatch(gpu -> gpu.getManufacturer() != null
-                            && gpu.getManufacturer().toLowerCase().contains("nvidia"));
+        if(log.isDebugEnabled()){
+            log.warn("ai.nextgpu DEBUG logging enabled — skipping NVIDIA GPU detection");
+            hasNvidia = true;
+        } else {
+            if (gpus != null) {
+                hasNvidia = gpus.stream()
+                        .anyMatch(gpu -> gpu.getManufacturer() != null
+                                && gpu.getManufacturer().toLowerCase().contains("nvidia"));
+            }
+            log.info("NVIDIA GPU detected: {}", hasNvidia);
         }
-        log.info("NVIDIA GPU detected: {}", hasNvidia);
         saveGlobalProperty(GlobalPropertyConfig.HAS_NVIDIA_GPU, String.valueOf(hasNvidia), "java.lang.Boolean");
         return hasNvidia;
     }
